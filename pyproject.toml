@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "moea-find"
+version = "0.1.0"
+description = "Multi-Objective Evolutionary Algorithm for Structured Synthetic Drought Generation"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "pandas",
+]
+
+[project.optional-dependencies]
+synhydro = [
+    "synhydro",
+]
+parametric = [
+    "pyvinecopulib",
+]
+dev = [
+    "pytest",
+    "platypus-opt",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
