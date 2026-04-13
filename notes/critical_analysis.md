@@ -131,11 +131,18 @@ Devil's advocate: FIND generates one targeted scenario per run. If we want 200 s
 
 ## 8. Publication Positioning
 
-**Where does this fit?**
-- Too methods-focused for WRR (Water Resources Research)? (Though Borgomeo 2015 was published in WRR)
-- Environmental Modelling and Software (where FIND, Zaniolo et al. 2023, was published) is a natural home
-- Alternatively: Journal of Hydrology, or Advances in Water Resources (where Reed et al. 2013 review was published)
-- Could be a short communication / technical note if the method is simple enough
+**Target venue (decided 2026-04-13): *Water Resources Research* (WRR).**
+
+Rationale:
+- Borgomeo et al. (2015), the most direct methodological predecessor, is a WRR paper. Reviewers familiar with search-based synthetic generation are routed there.
+- The DRB multi-site case study gives the paper the applied-hydrology grounding WRR expects alongside the methods contribution.
+- WRR's audience is the primary consumer of MORDM-style robustness analyses, which is where MOEA-FIND's output is intended to be used.
+- Environmental Modelling & Software (where FIND, Zaniolo et al. 2023, was published) remains a credible fallback if WRR reviewers judge the scope too narrowly methodological, but the plan is written assuming WRR.
+
+Drafting implications:
+- Structure follows WRR's Methods–Results–Discussion convention; no hard word cap but target 8–12k words with 8–10 main-text display items.
+- Frame the contribution as a hydrology methods advance with a case study, not as a pure optimization paper.
+- Lean into the DRB case study in §7 and ensure the multi-site plausibility diagnostics are thorough (WRR reviewers will scrutinize them).
 
 **Minimum viable paper:**
 1. Method description (Manhattan norm trick, Borg coupling, bootstrap formulation)

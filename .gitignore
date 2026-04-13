@@ -1,5 +1,7 @@
-# Outputs (regenerable)
-outputs/
+# Outputs (regenerable) — but keep the layout README and placeholder
+outputs/*
+!outputs/README.md
+!outputs/.gitkeep
 *.h5
 *.hdf5
 *.csv
@@ -30,3 +32,8 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+.claude/
+manuscript/
+figures/
+outputs/
+notes/
