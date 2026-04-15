@@ -1,3 +1,6 @@
+> **ARCHIVED 2026-04-15 — historical provenance only. Do not act on this document.**
+> Origin design proposal. Retained for: §3.1 architecture diagram, §8 parametric reference list. Sync note at top of file identifies superseded sections. Current method state: `notes/design_decisions.md`. Current manuscript: `manuscript_main_draft.md`.
+
 # MOEA-FIND: Method Proposal and Design Notes
 
 *Date: 2026-04-12*

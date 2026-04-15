@@ -98,15 +98,20 @@ weight retuning is necessary when targets move away from historical
 conditions, implying that fixing these as constraints is even more
 restrictive than the predecessor methods.
 
-**Defensible response.** The constraint-domination approach is
-standard (Deb, 2000) and is used throughout the MORDM literature.
-The concern about autocorrelation is real but is bounded by the Kirsch
-bootstrap, which enforces the historical correlation structure by
-construction through the Cholesky factorisation: the constraint is
-therefore approximately redundant for normal traces and becomes active
-only for pathological decision vectors. The 15% mean-flow tolerance is
-less well justified and should be calibrated against the historical
-distribution of non-drought flows.
+**Defensible response.** The constraints verify statistical plausibility
+rather than identifying drought events: they check whether each synthetic
+trace lies within the envelope of traces the Kirsch-Nowak generator could
+produce naturally given an infinite ensemble, not whether it contains a
+drought of a particular character. The lag-1 autocorrelation concern is
+bounded by the Kirsch bootstrap, which enforces the historical correlation
+structure by construction through the Cholesky factorisation: the
+constraint is therefore approximately redundant for normal traces and
+becomes active only for pathological decision vectors. The 15% non-drought
+mean-flow tolerance is less well justified and should be calibrated against
+the historical bootstrap distribution of non-drought flows (see
+`generator_constraints_review.md` §4.3 for guidance). Both tolerance
+values are items in the code alignment backlog; the manuscript is the
+specification.
 
 **Preemptive action.** Add a one-paragraph justification for both
 tolerance values in Section 2.2.4 explaining how they were calibrated.
@@ -427,10 +432,14 @@ storyline/scenario discovery community will note the gap.
 define scenario storylines as "physically self-consistent unfolding[s]
 of plausible future events" and show that scenario discovery workflows
 produce scenario descriptions that are more useful for multi-actor
-planning than raw ensemble statistics. Moallemi et al. (2020) discuss
-the role of narrative and interpretability in DMDU decision support,
-noting that methodological choices affect the actionability of
-findings.
+planning than raw ensemble statistics. Moallemi et al. (2020b) identify
+scenario generation as a named methodological fork (Stage II fork 3.2.2,
+Framing future scenarios) and emphasise path dependency — the sensitivity
+of downstream inferences to choices made at this fork. Herman et al.
+(2015) characterise the same stage as Axis II (States of the World) in
+their four-axis robustness taxonomy. Both frameworks position scenario
+generation as load-bearing, and a reviewer from either tradition will
+expect the manuscript to address interpretability as well as coverage.
 
 **Defensible response.** MOEA-FIND produces a structured archive
 whose members are indexed by interpretable drought characteristics,
@@ -740,13 +749,17 @@ reference-direction mechanism is not is well-grounded in Section 2.2.3.
 However, the claim would be strengthened by a brief empirical
 comparison.
 
-**Preemptive action.** Add a Supporting Information comparison of
-Borg against epsilon-NSGA-II (from platypus) on the analytic
-benchmark at K=3, showing that both produce similar coverage quality.
-Then note that the Borg adaptive operator selection provides an
-advantage for the higher-dimensional Kirsch case, with evidence from
-the convergence curves. This turns the claim from an assertion into
-a supported finding.
+**Preemptive action.** The analytic benchmark results were produced
+with EpsNSGAII (platypus) as a locally runnable stand-in for Borg MOEA.
+When production Borg MOEA runs are completed on HPC for the same analytic
+benchmark, the comparison between EpsNSGAII and Borg archive coverage
+quality will be available implicitly. Add a Supporting Information note
+reporting that EpsNSGAII and Borg MOEA produce equivalent interior-filling
+coverage on the analytic benchmark because both use the same epsilon-
+dominance archive mechanism, then show Borg's convergence advantage on
+the higher-dimensional Cannonsville problem via multi-seed hypervolume
+curves. This turns the uniqueness claim from an assertion into a supported
+finding grounded in the specific epsilon-dominance archiving property.
 
 ---
 

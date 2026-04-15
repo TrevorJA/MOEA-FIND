@@ -1,104 +1,104 @@
-# Methods Audit: Manuscript vs. Code Discrepancies
+# Code Alignment Backlog
 
-*Prepared 2026-04-15 by autonomous session eloquent-northcutt.*
-*Source: comparison of `manuscript_main_draft.md` (§2.2.4) against `src/constraints.py` and `scripts/02_analytic_3d.py`, informed by `generator_constraints_review.md`.*
-*Items marked [TREV-DECISION] require authorial choice before the discrepancy can be resolved in the manuscript.*
+*Prepared 2026-04-15 from comparison of `manuscript_main_draft.md` (§2.2.4) against `src/constraints.py` and `scripts/02_analytic_3d.py`, informed by `generator_constraints_review.md`.*
+
+*Framing principle: The manuscript is the specification. Items below are places where the code has not yet been updated to match it. Items marked [TREV-DECISION] require authorial choice before the code alignment can be completed.*
 
 ---
 
-## Discrepancy 1: Lag-1 autocorrelation tolerance
+## Item 1: Lag-1 autocorrelation tolerance
 
 **Manuscript** (§2.2.4, paragraph 2):
 > "The lag-1 autocorrelation of the trace is required to lie within $0.05$ of the historical lag-1 autocorrelation..."
 
-**Code** (`src/constraints.py`, `autocorrelation_constraint`, default `tolerance=0.3`; `compute_all_constraints`, default `autocorr_tol=0.3`):
-The effective tolerance at runtime is 0.30, not 0.05. No call site overrides this default.
+**Current code** (`src/constraints.py`, `autocorrelation_constraint`, default `tolerance=0.3`; `compute_all_constraints`, default `autocorr_tol=0.3`):
+The effective tolerance at runtime is 0.30. No call site overrides this default.
 
-**Implication:** The constraint is six times more permissive than the manuscript states. At 0.30, the constraint allows lag-1 autocorrelation as low as 0.55 for a Cannonsville record with historical lag-1 AC near 0.85, admitting physically unusual monthly flow sequences without any penalty. The stated value of 0.05 is approximately correct given the bootstrap sampling variability of lag-1 AC at 30-year trace length (see `generator_constraints_review.md` §4.4, which estimates a defensible tolerance of 0.08–0.12); the implemented value of 0.30 is approximately six times too wide.
+**Context:** The constraint verifies statistical plausibility — that the synthetic trace exhibits lag-1 autocorrelation consistent with what the Kirsch generator could produce given an infinite ensemble. The manuscript value of 0.05 reflects a tighter plausibility envelope than the current code. `generator_constraints_review.md` §4.4 estimates a bootstrap-calibrated plausibility tolerance of 0.08–0.12 for 30-year traces.
 
-**Suggested resolution:** Change `autocorr_tol` default in `compute_all_constraints` to the bootstrap-calibrated value (recommended 0.08–0.12 per `generator_constraints_review.md` §4.4) and update the manuscript to report the chosen value with a one-sentence calibration rationale. [TREV-DECISION: what is the final tolerance value?]
+**Alignment action:** Update `autocorr_tol` default in `compute_all_constraints` to the chosen value and verify no call site requires the wide 0.30 tolerance. [TREV-DECISION: final tolerance value — manuscript states 0.05; calibrated range per §4.4 is 0.08–0.12.]
 
 ---
 
-## Discrepancy 2: Non-drought period mean constraint not implemented
+## Item 2: Non-drought period mean constraint not implemented
 
 **Manuscript** (§2.2.4, paragraph 2):
 > "...and the mean of the non-drought annual flows is required to lie within $15$ percent of the historical average."
 
-**Code** (`src/constraints.py`, `annual_stats_constraint`):
+**Current code** (`src/constraints.py`, `annual_stats_constraint`):
 ```python
 s_mean = np.mean(synthetic_monthly)   # mean over ALL months
 h_mean = np.mean(historical_monthly)
 mean_violation = max(0.0, abs(mean_ratio - 1.0) - mean_tolerance)  # tolerance = 0.50
 ```
-The function computes the mean over every monthly flow value, not over non-drought months only. The tolerance is 0.50 (50 percent), not 0.15 (15 percent). No drought-period or non-drought-period split exists anywhere in `constraints.py`.
+The function computes the mean over every monthly value, not over non-drought months only. The tolerance is 0.50, not 0.15. No drought-period filtering exists in `constraints.py`.
 
-**Implication:** The manuscript claims a qualitatively different constraint (non-drought-period-specific, 15 percent) than what is implemented (all-flow, 50 percent). These are not equivalent. The implemented constraint is effectively inactive for any physically plausible trace: a 50 percent excursion in mean monthly flow would represent a trace with half or double the historical annual volume, which the optimizer would be unlikely to produce while also optimising meaningful drought characteristics. The non-drought-period-specific constraint stated in the manuscript would require per-trace SSI event detection to identify drought months (adding approximately 5–10 percent computational overhead).
+**Context:** The manuscript describes a plausibility check on non-drought periods specifically — verifying that periods between drought events remain statistically consistent with the generator's historical envelope. This is a narrower and more interpretable plausibility criterion than the all-flow version. Implementing it requires per-trace SSI event detection to identify non-drought months.
 
-**Suggested resolution:** Implement the non-drought period constraint as described in the manuscript, following the guidance in `generator_constraints_review.md` §4.3, OR revise the manuscript to accurately describe the current all-flow constraint at 50 percent tolerance. [TREV-DECISION: which approach?]
+**Alignment action:** Implement the non-drought-period mean constraint as described in the manuscript, following `generator_constraints_review.md` §4.3. [TREV-DECISION: confirm final tolerance value — manuscript states 15%; calibrated guidance is in §4.3.]
 
 ---
 
-## Discrepancy 3: Seasonal cycle constraint absent from manuscript
+## Item 3: Seasonal cycle constraint not described in manuscript
 
 **Manuscript** (§2.2.4, paragraph 2):
 > "Two plausibility constraints are imposed on generated traces. The lag-1 autocorrelation...and the mean of the non-drought annual flows..."
 
-**Code** (`src/constraints.py`, `seasonal_cycle_constraint` and `compute_all_constraints`):
-A third constraint, `seasonal_cycle_constraint` (default `tolerance=0.5`), checks that the per-month mean of the synthetic trace lies within 50 percent of the historical per-month mean for all 12 calendar months. This function is called as `c3` by `compute_all_constraints`. It is not mentioned in the manuscript.
+**Current code** (`src/constraints.py`, `seasonal_cycle_constraint` and `compute_all_constraints`):
+A third constraint, `seasonal_cycle_constraint` (default `tolerance=0.5`), checks that per-month means of the synthetic trace lie within 50 percent of the historical per-month means for all 12 calendar months.
 
-**Implication:** The manuscript understates the constraint set by one function. The seasonal cycle constraint at 50 percent tolerance is effectively inactive for any trace generated by the standard Kirsch pipeline, because the generator preserves monthly geometric means exactly by construction (see §2.2.1 as revised). Its presence is therefore not load-bearing methodologically, but its absence from the manuscript description is an inaccuracy.
+**Context:** The seasonal cycle constraint at 50 percent tolerance is approximately redundant given that the Kirsch generator preserves monthly geometric means exactly by construction (§2.2.1). Its presence does not change results but its absence from the manuscript description is an inaccuracy.
 
-**Suggested resolution:** Add one sentence to §2.2.4 acknowledging the seasonal cycle constraint and noting that it is approximately redundant given the generator's exact preservation of monthly means. No TREV-DECISION required; this is a documentation fix.
-
----
-
-## Discrepancy 4: Annual mean and CV tolerance — undescribed constraint with wide tolerance
-
-**Manuscript** (§2.2.4): Neither the annual mean constraint nor the CV constraint is named or described.
-
-**Code** (`src/constraints.py`, `annual_stats_constraint`, defaults `mean_tolerance=0.5`, `cv_tolerance=0.5`):
-Both annual mean and annual CV of synthetic monthly flows must lie within 50 percent of their historical counterparts. The constraint is applied to the full monthly flow vector without drought-period filtering.
-
-**Implication:** `generator_constraints_review.md` §4.1 identifies the 50 percent tolerance as "indefensible to any reviewer with stochastic hydrology background" and recommends replacement with a bootstrap-calibrated tolerance near 0.15. The manuscript does not mention the constraint at all, leaving a gap between what the text describes and what the code runs.
-
-**Suggested resolution:** Add the annual mean and CV constraints to the §2.2.4 description. Whether to retain the 50 percent tolerance or update it to 0.15 is a methodology decision. [TREV-DECISION: which tolerance value?]
+**Alignment action:** Add one sentence to §2.2.4 naming the seasonal cycle constraint and noting its near-redundancy with the generator's exact mean preservation. No TREV-DECISION required.
 
 ---
 
-## Discrepancy 5: Optimization algorithm used for analytic benchmark figures
+## Item 4: Annual mean and CV tolerance — undescribed constraints
+
+**Manuscript** (§2.2.4): Neither the annual mean constraint nor the CV constraint is mentioned.
+
+**Current code** (`src/constraints.py`, `annual_stats_constraint`, defaults `mean_tolerance=0.5`, `cv_tolerance=0.5`):
+Both annual mean and annual CV of synthetic monthly flows must lie within 50 percent of their historical counterparts.
+
+**Context:** `generator_constraints_review.md` §4.1 flags the 50 percent tolerance as not defensible and recommends a bootstrap-calibrated tolerance near 0.15. The manuscript should describe these constraints, and the code should use the chosen tolerance.
+
+**Alignment action:** Add the annual mean and CV constraints to the §2.2.4 description. Update code tolerances to the chosen values. [TREV-DECISION: final tolerance values — current code uses 0.50; calibrated recommendation per §4.1 is 0.15.]
+
+---
+
+## Item 5: Analytic benchmark scripts use EpsNSGAII — note only, not a discrepancy
 
 **Manuscript** (§2.2.2):
 > "The multi-objective evolutionary optimizer used by MOEA-FIND is Borg MOEA (Hadka and Reed, 2013)..."
 
-**Code** (`scripts/02_analytic_3d.py`, `scripts/01_analytic_2d.py`):
+**Current analytic scripts** (`scripts/02_analytic_3d.py`, `scripts/01_analytic_2d.py`):
 ```python
 from platypus import EpsNSGAII, Problem, Real
 algo = EpsNSGAII(problem, epsilons=[epsilon] * (K + 1))
 ```
-Both analytic benchmark scripts use `EpsNSGAII` from the `platypus` open-source library, not Borg MOEA. The single-site Cannonsville script (`04_kirsch_single_site.py`) docstring reads "serial Borg/platypus fallback," confirming that platypus is the locally runnable fallback and Borg is the HPC target.
+The analytic benchmark scripts use EpsNSGAII from `platypus` as a locally runnable stand-in. The single-site Cannonsville script (`04_kirsch_single_site.py`) docstring reads "serial Borg/platypus fallback," confirming that platypus is the local substitute and Borg is the production algorithm.
 
-**Implication:** If the Section 3.1 dimension sweep figures and numbers in the current draft were produced with EpsNSGAII (likely, because Borg requires a license and HPC access), then the manuscript misidentifies the algorithm used for those results. EpsNSGAII uses the same epsilon-dominance archive as Borg but lacks adaptive operator selection and epsilon-progress restart. The theoretical argument of §2.2.2–2.2.3 applies to any epsilon-dominance archive, so the results are still valid for the construction, but the algorithm identification should be accurate.
+**This is not a manuscript discrepancy.** Borg is the production algorithm; EpsNSGAII is the local test stand-in used for rapid development on machines without the Borg license. The manuscript correctly identifies Borg. The analytic results are valid because both algorithms use the same epsilon-dominance archive mechanism, which is the only property the theoretical argument requires. The Section 3.1 dimension sweep figures produced with EpsNSGAII are valid preliminary results pending reproduction with Borg on HPC.
 
-**Suggested resolution:** Determine which algorithm produced the current Section 3.1 outputs (check `outputs/diag_shell_vs_interior/k3/config.json` — it does not record the algorithm name). If EpsNSGAII was used, the analytic benchmark paragraph should name it. The §2.2.2 Borg description would then apply to the Cannonsville runs only, which is a clean split between the published and pending results. [TREV-DECISION: confirm which algorithm produced Section 3.1 outputs and update the manuscript accordingly. Consider adding a Supporting Information comparison of Borg vs EpsNSGAII on the analytic benchmark per reviewer critique 16.]
+**Note for §3.1:** A parenthetical identifying EpsNSGAII as the algorithm used for the analytic runs, with a note that production Cannonsville runs use Borg, cleanly separates preliminary from production results without contradicting the §2.2.2 algorithm description.
 
 ---
 
-## Discrepancy 6: NFE for analytic benchmark — two different runs conflated
+## Item 6: NFE for analytic benchmark — two runs conflated
 
 **Manuscript** (§3.1): "with 30,000 function evaluations per $K$"
 
 **Data files:**
-- `outputs/diag_shell_vs_interior/k3/config.json`: `nfe=30000` (matches manuscript; this is the Figure 4 dimension sweep data)
-- `outputs/exp02_analytic_3d/config.json`: `nfe=2000` (this is the SI hyperplane figure data, NOT the main Figure 4 data)
+- `outputs/diag_shell_vs_interior/k3/config.json`: `nfe=30000` (Figure 4 dimension sweep data)
+- `outputs/exp02_analytic_3d/config.json`: `nfe=2000` (Supporting Information SI-1 hyperplane figure data)
 
-**Implication:** The manuscript §3.1 states 30,000 NFE, which is correct for Figure 4. However, the affine identity verification using Supporting Information Figure SI-1 is derived from the `exp02` run at 2,000 NFE with 682 archive members, not from the 30,000-NFE, 6,158-member Figure 4 run. The current text implies the hyperplane is verified on the same 30,000-NFE archive as the coverage diagnostics, which is not the case.
+**Context:** The manuscript §3.1 correctly states 30,000 NFE for Figure 4. However, the affine identity verification in SI-1 uses the 2,000-NFE run (682 archive members), not the 30,000-NFE, 6,158-member Figure 4 run.
 
-**Suggested resolution:** Add a parenthetical in §3.1 clarifying that the affine identity verification in Supporting Information Figure SI-1 uses the 2,000-NFE run (682 archive members) and that the coverage diagnostics in Figure 4 use the 30,000-NFE dimension sweep. No TREV-DECISION required; this is a documentation precision fix.
+**Alignment action:** Add a parenthetical in §3.1 clarifying that the affine identity verification in SI-1 uses the 2,000-NFE run (682 archive members) and the coverage diagnostics in Figure 4 use the 30,000-NFE dimension sweep. No TREV-DECISION required.
 
 ---
 
-## Discrepancy 7: Archive size in CLAUDE.md inconsistent with output data
+## Item 7: CLAUDE.md archive size — outdated session note
 
 **CLAUDE.md** (project notes): "1362 Pareto solutions, hyperplane verified to machine precision (std~10^-16)"
 
@@ -106,20 +106,20 @@ Both analytic benchmark scripts use `EpsNSGAII` from the `platypus` open-source 
 - `outputs/diag_shell_vs_interior/k3/results.json`: n=6,158 at K=3
 - `outputs/exp02_analytic_3d/results.json`: n=682 at K=3
 
-Neither run produces 1,362 solutions. The CLAUDE.md figure likely derives from an intermediate exploratory run that is no longer the authoritative result. The revised §3.1 uses the actual output-file numbers (6,158 for Figure 4; 682 for the hyperplane SI figure).
+**Context:** The 1,362 figure appears to derive from an intermediate exploratory run no longer present in the outputs directory. The revised §3.1 uses the actual output-file numbers (6,158 for Figure 4; 682 for SI-1).
 
-**Suggested resolution:** Update CLAUDE.md to reflect the actual archive sizes from the authoritative output files. Not a manuscript discrepancy per se, but the CLAUDE.md misinformation could propagate to the manuscript if cited from session notes. [RECOMMENDED: update CLAUDE.md after confirming the current authoritative run.]
+**Alignment action:** Update CLAUDE.md to reflect the authoritative output-file numbers from the current runs. Not a manuscript alignment item but worth tracking here to prevent the stale figure from re-entering the manuscript.
 
 ---
 
 ## Summary table
 
-| # | Location | Manuscript claim | Code reality | Action required |
+| # | Location | Manuscript specification | Current code | Action |
 |---|---|---|---|---|
-| 1 | §2.2.4 | lag-1 AC tol = 0.05 | tol = 0.30 | TREV-DECISION: choose tolerance value |
-| 2 | §2.2.4 | non-drought mean within 15% | all-flow mean within 50% | TREV-DECISION: implement or revise |
-| 3 | §2.2.4 | two constraints total | three (seasonal cycle also present) | Documentation fix: add one sentence |
-| 4 | §2.2.4 | no mention of annual mean/CV | annual mean + CV at 50% tol | TREV-DECISION: choose tolerance, add description |
-| 5 | §2.2.2, §3.1 | Borg MOEA throughout | EpsNSGAII for analytic scripts | TREV-DECISION: confirm algorithm for Fig 4 |
-| 6 | §3.1 | implies 30K NFE for hyperplane check | SI-1 is from 2K NFE run | Documentation fix: add parenthetical |
-| 7 | CLAUDE.md | 1362 archive members | 6158 (diag) or 682 (exp02) | Update CLAUDE.md session notes |
+| 1 | §2.2.4 | lag-1 AC plausibility tol = 0.05 | tol = 0.30 | Update code; TREV-DECISION on final value |
+| 2 | §2.2.4 | non-drought mean within 15% | all-flow mean within 50% | Implement non-drought filter in code; TREV-DECISION on final value |
+| 3 | §2.2.4 | two constraints listed | three present (seasonal cycle also) | Add one sentence to manuscript describing seasonal cycle constraint |
+| 4 | §2.2.4 | annual mean/CV not described | annual mean + CV at 50% tol | Describe in manuscript; update code tolerances; TREV-DECISION on final values |
+| 5 | §2.2.2, §3.1 | Borg MOEA (production) | EpsNSGAII (local stand-in) | No change needed — note in §3.1 parenthetical only |
+| 6 | §3.1 | implies single NFE for all analytic results | SI-1 from 2K run; Fig 4 from 30K run | Add parenthetical clarifying the two runs |
+| 7 | CLAUDE.md | — | 1362 (stale) vs 6158/682 (current outputs) | Update CLAUDE.md |

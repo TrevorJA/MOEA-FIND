@@ -221,10 +221,22 @@ achievable drought characteristics.
 
 This paper introduces MOEA-FIND, a fourth approach that places the structured
 design step directly in the drought hazard characteristic space (Figure 1, panel D).
-The method explores which drought signatures are achievable by recombination of
-observed monthly values through the Kirsch-Nowak bootstrap generator (Kirsch et al.,
-2013; Nowak et al., 2010) and does not extrapolate beyond the historical flow
-envelope. Parametric extension for climate-change stress testing, through
+In the taxonomy of Herman et al. (2015), scenario generation constitutes
+Axis II (States of the World), the methodological stage governing the selection
+and sampling of uncertain factors that constitute plausible future states of the
+world. In the decision support framework of Moallemi et al. (2020), this same stage
+is fork 3.2.2 (Framing future scenarios), and the two dominant modes available at
+this fork are pre-specified standardised scenarios and globally sampled stochastic
+analysis over the parameter uncertainty space. All three panel-A through panel-C
+approaches described above operate in one of these two modes. MOEA-FIND introduces
+directed multi-objective search in the emergent drought hazard characteristic space
+as an alternative mode at this stage: rather than sampling the parameter uncertainty
+space and projecting into the hazard space, MOEA-FIND searches the hazard space
+directly to achieve structured coverage and returns the parameter vectors that
+produce it. The method explores which drought signatures are achievable by
+recombination of observed monthly values through the Kirsch-Nowak bootstrap
+generator (Kirsch et al., 2013; Nowak et al., 2010) and does not extrapolate beyond
+the historical flow envelope. Parametric extension for climate-change stress testing, through
 substitution of a kappa-distribution generator or vine-copula model at the same
 coupling point, is architecturally compatible and is deferred to follow-on work.
 Within that scope, MOEA-FIND couples the Borg multi-objective evolutionary algorithm

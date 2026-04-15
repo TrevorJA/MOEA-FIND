@@ -1,3 +1,6 @@
+> **ARCHIVED 2026-04-15 — historical reference only. Do not act on this document.**
+> Project state snapshot taken before the hygiene sweep that consolidated manuscript/ into its current tracked state. Sweep is complete; see `manuscript/notes/INDEX.md` for current state.
+
 # Worktree Sync Audit
 **Generated:** 2026-04-15  
 **Auditor:** Claude Code (busy-shirley session)  

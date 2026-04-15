@@ -57,7 +57,7 @@ This document consolidates the state of the MOEA-FIND project and defines the wo
 2. **Feasible-region framing.** DD-10 shows that raw uniformity is *not* MOEA-FIND's headline advantage. The paper must reframe around *structured coverage of the physically feasible drought region* or readers will compare NN_CV to Sobol and conclude the method underperforms.
 3. **Event-level vs. trace-level framing (DD-01).** The paper promises both. Only the trace-level framing is implemented in code.
 4. **Plausibility audit.** No end-to-end trace plausibility report exists (autocorrelation, FDC, seasonal cycle, Hurst). Required before reviewers will accept the bootstrap pipeline.
-5. **Borg vs. platypus.** Current experiments use serial Borg via the SynHydro-adjacent pipeline; no confirmation that the Borg binary path / license is set up on HPC.
+5. **HPC Borg installation.** EpsNSGAII (platypus) is the confirmed local stand-in for rapid development; Borg MOEA is the production algorithm. Analytic results are valid for the construction because both algorithms use the same epsilon-dominance archive mechanism. Borg needs to be installed on HPC and production runs executed before submission (see HPC Phase C1).
 
 ---
 

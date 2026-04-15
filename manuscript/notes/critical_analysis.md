@@ -26,11 +26,16 @@
 > decision-variable space (contrast with Bonham 2024 input-space
 > subsampling, Hadjimichael 2020 LHS over HMM hyperparameters, and
 > the broader exploratory modelling tradition reviewed by Moallemi
-> 2020). The scenario discovery demonstration in Section 3.3 of
-> the manuscript uses a gradient boosted tree classifier, not BART
-> or PRIM. Terminology rules added to `style_guide.md` sections
-> 5.11 through 5.17 apply to any prose that migrates from this
-> file into the manuscript.
+> 2020). In the Herman et al. (2015) four-axis taxonomy, MOEA-FIND
+> operates within Axis II (States of the World), introducing directed
+> search in hazard-outcome space as a new mode of scenario generation.
+> In the Moallemi et al. (2020b) decision support framework, it
+> operates at Stage II fork 3.2.2 (Framing future scenarios). The
+> scenario discovery demonstration in Section 3.3 of the manuscript
+> uses a gradient boosted tree classifier, not BART or PRIM.
+> Terminology rules added to `style_guide.md` sections 5.11 through
+> 5.17 apply to any prose that migrates from this file into the
+> manuscript.
 
 ---
 
@@ -108,14 +113,7 @@ question. The question actually addressed by the existing experiments
 is whether the `K`-dimensional feasible image in the correct
 formulation is tiled interior-fillingly by Borg's archive.
 
-**Analysis (2026-04-14, DD-11 dimension sweep complete).** A
-constrained `K`-ball diagnostic (`scripts/diag_shell_vs_interior.py`)
-was run at `K = 2, 3, 4, 5, 6` with 30 000 NFE per `K`, using the
-actual implemented formulation and comparing MOEA-FIND to
-uniform-in-ball, LHS-in-ball, and Sobol-in-ball reference samples
-at matched archive size. The full table is at
-`outputs/diag_shell_vs_interior/sweep_table.md` and in SI-2.4. The
-key metrics are:
+**Analysis (2026-04-14, DD-11 dimension sweep complete; preliminary — EpsNSGAII stand-in, pending Borg production runs).** A constrained `K`-ball diagnostic (`scripts/diag_shell_vs_interior.py`) was run at `K = 2, 3, 4, 5, 6` with 30 000 NFE per `K`, using the actual implemented formulation and comparing MOEA-FIND to uniform-in-ball, LHS-in-ball, and Sobol-in-ball reference samples at matched archive size. The full table is at `outputs/diag_shell_vs_interior/sweep_table.md` and in SI-2.4. The key metrics are (all values preliminary pending Borg production runs):
 
 - **Mean Manhattan distance from the anti-ideal.** MOEA-FIND tracks
   the uniform-in-ball reference within sampling error at every

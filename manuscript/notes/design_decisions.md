@@ -235,9 +235,9 @@ What constraints should enforce trace plausibility, and how tight should they be
 - Constraint violations can be evaluated cheaply alongside drought metrics
 - Starting with minimal constraints and adding if needed is more robust than starting strict
 
-### Decision
+### Decision (updated 2026-04-15; see `manuscript_main_draft.md` §2.2.4 for authoritative specification)
 
-**TBD.** Start with minimal constraints (non-negative flows, basic autocorrelation). Add incrementally based on plausibility assessment of generated traces.
+**Resolved.** The constraints verify statistical plausibility — that each synthetic trace lies within the envelope of traces the Kirsch-Nowak generator could produce naturally given an infinite ensemble. Two constraints are specified in the manuscript: lag-1 autocorrelation within tolerance of historical, and non-drought-period mean flow within tolerance of historical. These are implemented as soft constraints under the Deb (2000) constraint-domination criterion. The exact tolerance values are items in the code alignment backlog (see `methods_audit.md` Items 1 and 2). The constraint set does not identify drought events; it verifies plausibility of the full trace relative to the generator's natural envelope. A third constraint (seasonal cycle) is present in the code and is discussed in `methods_audit.md` Item 3.
 
 **Literature on constraints:** Wheeler et al. (2025) includes Hurst coefficient for long-range dependence and cross-site correlation matrix in the objective function (not as a constraint, but serves the same purpose). Borgomeo et al. (2015) used autocorrelation matching as part of the simulated annealing objective. The block bootstrap (Kirsch et al. 2013) inherently preserves within-block temporal structure and, with shared indices, cross-site correlation. Larger blocks reduce the need for explicit autocorrelation constraints. The Cholesky decomposition step in the Kirsch pipeline further enforces historical correlation structure.
 
@@ -354,9 +354,9 @@ How to interface with Borg MOEA?
 - For the publication, using Borg (the standard in the water resources community) is strongest.
 - For the proof-of-concept, platypus may be sufficient and avoids Borg licensing.
 
-### Decision
+### Decision (updated 2026-04-15)
 
-**TBD.** Use platypus for POC experiments, Borg for publication results. Verify that platypus epsilon-MOEA produces similar uniformity.
+**Borg MOEA is the production algorithm.** EpsNSGAII (platypus) is the confirmed local stand-in for rapid development and analytic validation on machines without the Borg license. Analytic results produced with EpsNSGAII are valid for the construction because both algorithms use the same epsilon-dominance archive mechanism, which is the only property the theoretical argument requires. Production Cannonsville and library-comparison results will use Borg MOEA on HPC. No comparison of the two algorithms is needed beyond confirming that both produce interior-filling archives on the analytic benchmark (already verified in DD-11).
 
 **Literature context:** Hadka and Reed (2013) demonstrated Borg's superiority on 33 benchmark instances (DTLZ, WFG, CEC 2009). Three key mechanisms make Borg essential for MOEA-FIND: (1) epsilon-dominance archiving produces near-uniform tiling of the Manhattan-norm hyperplane, (2) epsilon-progress restart triggering escapes premature convergence in the high-dimensional DV space, (3) adaptive operator selection among six variational operators (SBX, DE, PCX, UNDX, SPX, PM, UM) adapts to the problem landscape. Per user direction, Borg is the required optimizer for this method; generalization to other MOEAs is out of scope. NSGA-III (Deb and Jain 2014) and MOEA/D (Zhang and Li 2007) achieve coverage through different mechanisms (reference points, decomposition) that lack the specific hyperplane-tiling property.
 
@@ -417,7 +417,7 @@ Infrastructure is ready. Large-scale library generation (10K+ traces) deferred t
 ### Literature Context
 
 **Synthetic streamflow generation in water resources:**
-Kirsch et al. (2013) introduced the block bootstrap stochastic streamflow generator with Cholesky correlation preservation (B=1 monthly resampling + normal-score transform). The Kirsch-Nowak generator is widely used in Reed group MORDM studies to produce synthetic streamflow ensembles for robustness evaluation. Typical practice generates ensembles of 100-10,000 traces and uses them directly for policy re-evaluation without structured subsampling in drought characteristic space.
+Kirsch et al. (2013) introduced the block bootstrap stochastic streamflow generator with Cholesky correlation preservation (B=1 monthly resampling + normal-score transform). The Kirsch-Nowak generator is widely used in MORDM studies to produce synthetic streamflow ensembles for robustness evaluation. Typical practice generates ensembles of 100-10,000 traces and uses them directly for policy re-evaluation without structured subsampling in drought characteristic space.
 
 **How existing studies actually use synthetic ensembles:**
 Hadjimichael et al. (2020) samples States of the World via LHS in *parameter space* (HMM transition probabilities, mean/variance multipliers), then generates synthetic realizations per SOW. The LHS operates on generator parameters, not on drought characteristics post-hoc. Quinn et al. (2018) uses CMIP5 climate projections with bias-corrected statistical downscaling, not synthetic library subsampling. Herman et al. (2016) modifies stochastic generation to control drought properties during generation via SSI, rather than selecting post-hoc.
@@ -439,7 +439,7 @@ The specific workflow of subsampling a synthetic streamflow library in drought *
 
 The 3D analytic validation test (Experiment 1.2 complete) reveals that epsilon-dominance tiling on the (k-1)-simplex produces moderate, not excellent, coverage uniformity in the full DV space when k=3.
 
-**Results:**
+**Results (preliminary — early exploratory run, superseded by DD-11 for authoritative numbers):**
 - 1362 Pareto-optimal solutions on the 2-simplex (triangular surface in 3D objective space)
 - Hyperplane constraint verified: solutions satisfy sum(J_i) = constant to machine precision (~10^-16 std)
 - Full range coverage: all three objectives span [-3, 3]
@@ -450,6 +450,8 @@ The 3D analytic validation test (Experiment 1.2 complete) reveals that epsilon-d
 - LHS (1362 samples): NN_CV = 0.37, L2* = 0.006
 - Sobol (1362 samples): NN_CV = 0.28, L2* = 0.001
 - Random (1362 samples): NN_CV = 0.50, L2* = 0.042
+
+These values are from an early exploratory run at smaller NFE and are NOT the authoritative Section 3.1 results. The authoritative dimension-sweep results at 30,000 NFE per K are in DD-11 and `shell_vs_interior_diagnostic.md`.
 
 **Interpretation:** Epsilon-dominance produces less uniform coverage (higher NN_CV, higher L2*) than purpose-built space-filling methods (LHS, Sobol) in the full 3D DV space. However, the constraint that solutions lie on the simplex is external to the coverage comparison. In this analytic problem, all points are Pareto-optimal, so the simplification to the hyperplane is an artificial constraint. In hydrology, the Pareto front will be much smaller and confined to the feasible drought region by physics, not by Borg's discretion.
 
@@ -517,14 +519,9 @@ formulation is correct and is the intended method.
 
 ### Empirical verification
 
-A diagnostic `scripts/diag_shell_vs_interior.py` was written to
-empirically verify interior coverage on a constrained analytic problem
-under the code's actual formulation. The test problem places a k-ball
-of radius 2.5 inside the bounding box `[-3, 3]^k` with `D*` at the
-positive corner. MOEA-FIND runs the current EpsNSGAII setup with a
-penalty vector for infeasible points, and reference samples are drawn
-inside the k-ball at matched archive size via rejection sampling from
-uniform, LHS, and Sobol designs.
+A diagnostic `scripts/diag_shell_vs_interior.py` was written to empirically verify interior coverage on a constrained analytic problem under the code's actual formulation. The test problem places a k-ball of radius 2.5 inside the bounding box `[-3, 3]^k` with `D*` at the positive corner. MOEA-FIND runs EpsNSGAII (platypus; local stand-in — production runs will use Borg MOEA on HPC) with a penalty vector for infeasible points, and reference samples are drawn inside the k-ball at matched archive size via rejection sampling from uniform, LHS, and Sobol designs.
+
+> **Preliminary results** — all numerical values below are from EpsNSGAII stand-in runs. Production Borg MOEA runs on HPC will replace these values before submission.
 
 **k = 2 result (2026-04-14, 30 000 NFE, seed 42):**
 

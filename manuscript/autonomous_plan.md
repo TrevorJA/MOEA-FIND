@@ -1,3 +1,6 @@
+> **ARCHIVED 2026-04-15 — historical reference only. Do not act on this document.**
+> Session check-in log for the 2026-04-14/15 autonomous overnight session. All deliverables landed; consolidation complete. For current project state see `manuscript/notes/INDEX.md`.
+
 # Autonomous Work Plan — MOEA-FIND Manuscript
 Start: 2026-04-15 02:41 UTC (2026-04-14 ~22:41 ET)
 Duration: 8 hours

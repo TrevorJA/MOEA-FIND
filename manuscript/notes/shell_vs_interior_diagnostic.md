@@ -113,6 +113,8 @@ axis-aligned feasible region.
 
 ## Results
 
+> **Preliminary** — produced with `platypus.EpsNSGAII` as a local stand-in for Borg MOEA (30 000 NFE, seed 42). All values will be confirmed with Borg MOEA production runs on HPC. The analytic results are valid for the construction because both algorithms use the same epsilon-dominance archive mechanism.
+
 30 000 function evaluations per `K` at seed 42.
 
 | K | sampler    | n    | mean L1 to D* | std  | interior | orthant | grid |

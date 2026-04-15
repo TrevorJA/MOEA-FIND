@@ -93,8 +93,8 @@ Figures are ordered to build the reader's understanding progressively: first the
 **Figure 2: Analytic Proof-of-Concept** GENERATED (2026-04-13)
 2D and 3D analytic test results. Panels: (a) 2D Pareto solutions (near-indistinguishable from LHS), (b) 3D simplex with pairwise projections showing full range coverage, (c) L2-star discrepancy and nearest-neighbor CV comparison (Pareto vs LHS vs Sobol), (d) 3D scatter showing Pareto front on hyperplane. Supports RQ1, RQ2.
 
-**Figure 3: Dimensionality Scaling** GENERATED (2026-04-13)
-Coverage quality metrics (L2-star discrepancy, nearest-neighbor CV) as a function of k from 2 to 3. Shows that epsilon-dominance produces moderate uniformity (NN_CV=0.42 at k=3) compared to LHS (0.37) and Sobol (0.28), but this is expected in the unconstrained analytic problem where all points are Pareto-optimal. Real advantage emerges in constrained feasible regions. See DD-10. Supports RQ2.
+**Figure 3: Dimensionality Scaling** GENERATED (2026-04-13); superseded by DD-11 dimension sweep
+Coverage quality metrics (interior mass fraction, grid occupancy, orthant coverage) from K=2 to K=6 on the constrained K-ball problem. All values preliminary (EpsNSGAII stand-in; production values pending Borg HPC runs). NN_CV=0.42 and L2* values from this earlier run are superseded by the DD-11 results; do not cite them in the manuscript. See DD-10 and DD-11. Supports RQ2.
 
 **Figure 4: Epsilon and Anti-Ideal Sensitivity**
 Two-panel sensitivity analysis. (a) Coverage quality vs. epsilon value (ensemble size, spacing regularity, discrepancy). (b) Coverage quality vs. anti-ideal placement (extent of sampled drought space, fraction of epsilon-boxes filled). Demonstrates parameter selection guidance. Supports RQ6.
