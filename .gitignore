@@ -38,3 +38,9 @@ figures/
 outputs/
 notes/
 venv/
+manuscript/literature/
+manuscript/notes/*.pptx
+manuscript/figures/*.pdf
+manuscript/figures/*.png
+# Project-level figure outputs (regenerable) — root only
+/figures/
