@@ -33,7 +33,10 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 .claude/
-manuscript/
-figures/
-outputs/
-notes/
+# Manuscript — track text/code, exclude large binaries (>120 MB in literature/)
+manuscript/literature/
+manuscript/notes/*.pptx
+manuscript/figures/*.pdf
+manuscript/figures/*.png
+# Project-level figure outputs (regenerable) — root only
+/figures/
