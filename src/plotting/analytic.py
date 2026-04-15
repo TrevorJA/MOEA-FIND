@@ -6,12 +6,17 @@ them into final figures with layout conventions pinned to the manuscript
 display-item specification (single-column ~3.5 in, 1.5-column ~5.5 in,
 double-column ~7.0 in at WRR).
 
-Manuscript cross-reference:
-    - fig1_manhattan_concept       → Main §3.1 / Fig 1 (conceptual, no data)
-    - fig2_2d_coverage_comparison  → Main §5.1 / Fig 2a
-    - fig2_3d_projections          → Main §5.2 / Fig 2b-c
-    - fig3_eps_nfe_heatmap         → Main §5.3 / Fig 3
-    - fig_si_hyperplane_check      → SI-1 hyperplane-residual histogram
+Manuscript cross-reference (restructured 2026-04-14 for the 7-figure
+narrative sequence):
+    - fig1_param_vs_hazard_space   → Main §1.3 / Figure 1
+    - fig3_manhattan_construction  → Main §2.4 / Figure 3
+    - fig4_dimension_sweep         → Main §3.1 / Figure 4
+    - fig_si_hyperplane_check      → SI-1 residual histogram
+    - fig3_eps_nfe_heatmap         → SI-3 epsilon x NFE heatmap
+
+Legacy (deprecated, used by archived scripts):
+    - fig1_manhattan_concept, fig2_2d_coverage_comparison,
+      fig2_3d_projections, fig2_metrics_bar
 """
 
 from __future__ import annotations
@@ -196,7 +201,78 @@ def fig2_3d_projections(
 
 
 # -----------------------------------------------------------------------------
-# Figure 3 — Epsilon × NFE sensitivity heatmap
+# Figure 2 panel c — coverage metrics bar chart
+# -----------------------------------------------------------------------------
+def fig2_metrics_bar(
+    pareto_points: np.ndarray,
+    lhs_points: np.ndarray,
+    sobol_points: np.ndarray,
+    random_points: Optional[np.ndarray] = None,
+    lb: Optional[np.ndarray] = None,
+    ub: Optional[np.ndarray] = None,
+    figsize: Tuple[float, float] = (7.0, 2.4),
+) -> plt.Figure:
+    """Manuscript Figure 2 panel c — NN_CV, L2*, centered discrepancy.
+
+    Three-panel bar chart comparing coverage metrics across MOEA-FIND,
+    LHS, Sobol, and (optionally) uniform-random samples of the same size
+    on the same bounding box. Sized as a single row so it can be stacked
+    below the 2D/3D scatter panels (panels a and b) of Figure 2.
+
+    Parameters
+    ----------
+    pareto_points, lhs_points, sobol_points : np.ndarray
+        (n, d) arrays of equal-size samples. All three must share the
+        same dimensionality d.
+    random_points : np.ndarray, optional
+        Optional fourth sampler to include as a "Random" baseline.
+    lb, ub : np.ndarray, optional
+        Bounding-box lower and upper bounds. If None, inferred from the
+        min/max of the union of all samples.
+    """
+    apply_style()
+    samples = [("MOEA-FIND", pareto_points, COLORS["empirical"]),
+               ("LHS",       lhs_points,    COLORS["lhs"]),
+               ("Sobol",     sobol_points,  COLORS["sobol"])]
+    if random_points is not None:
+        samples.append(("Random", random_points, COLORS["random"]))
+
+    if lb is None or ub is None:
+        stack = np.vstack([s[1] for s in samples])
+        lb = stack.min(axis=0)
+        ub = stack.max(axis=0)
+
+    rows = [coverage_metrics(s[1], lb, ub) for s in samples]
+    labels = [s[0] for s in samples]
+    colors = [s[2] for s in samples]
+
+    l2 = [r["L2_star_discrepancy"] for r in rows]
+    nn_cv = [r["nn_cv"] for r in rows]
+    nn_mean = [r["nn_mean"] for r in rows]
+
+    fig, axes = plt.subplots(1, 3, figsize=figsize, sharey=False)
+    panels = [
+        (axes[0], l2, "L2* discrepancy", "{:.4f}"),
+        (axes[1], nn_cv, "NN spacing CV", "{:.3f}"),
+        (axes[2], nn_mean, "NN mean distance", "{:.3f}"),
+    ]
+    x = np.arange(len(labels))
+    for ax, vals, title, fmt in panels:
+        bars = ax.bar(x, vals, color=colors, alpha=0.9)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=7)
+        ax.set_title(title, fontsize=9)
+        for bar, v in zip(bars, vals):
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                    fmt.format(v), ha="center", va="bottom", fontsize=7)
+        ax.margins(y=0.15)
+
+    fig.tight_layout()
+    return fig
+
+
+# -----------------------------------------------------------------------------
+# Figure 3 (SI-2 in new numbering) — Epsilon × NFE sensitivity heatmap
 # -----------------------------------------------------------------------------
 def fig3_eps_nfe_heatmap(
     aggregated: List[Dict],
@@ -294,4 +370,347 @@ def fig_si_hyperplane_check(
            label="(b) 3D: expected $\\Sigma$=9", color=COLORS["parametric"])
 
     fig.tight_layout()
+    return fig
+
+
+# =============================================================================
+# Main-text Figure 3 — Manhattan-distance auxiliary objective construction
+# =============================================================================
+def fig3_manhattan_construction(
+    figsize: Tuple[float, float] = (9.5, 3.2),
+) -> plt.Figure:
+    """Manuscript Figure 3 — geometric core of the method (K=2 case).
+
+    Three panels in a K=2 illustration:
+      (a) feasible image on the codimension-1 affine subset S inside the
+          K+1=3 objective space, with the anti-ideal D* outside the image;
+      (b) bijective projection pi from S to the K=2 drought characteristic
+          plane, with axes aligned to the two target characteristics;
+      (c) epsilon-box lattice tiling of S pulled back through pi to a
+          structured sample of the feasible drought characteristic region.
+    """
+    apply_style()
+    fig = plt.figure(figsize=figsize)
+    gs = GridSpec(1, 3, figure=fig, width_ratios=[1.1, 1.0, 1.0], wspace=0.32)
+
+    # Consistent anti-ideal and bounding box
+    D_star = np.array([3.0, 3.0])
+    bounds = (-3.0, 3.0)
+    # Constant sum C = D1* + D2* = 6 in the K+1 = 3 objective space
+    C = D_star.sum()
+
+    # -- Panel (a): 3D affine subset S = {f : f1 + f2 + f3 = C} --
+    ax_a = fig.add_subplot(gs[0, 0], projection="3d")
+    # Triangle of S intersected with non-negative orthant: vertices at (C,0,0) etc.
+    verts = np.array([[C, 0, 0], [0, C, 0], [0, 0, C]])
+    tri = np.vstack([verts, verts[0]])
+    ax_a.plot(tri[:, 0], tri[:, 1], tri[:, 2], color=COLORS["empirical"], lw=1.4)
+    # Feasible image: a curved patch inside the triangle (schematic)
+    rng = np.random.default_rng(1)
+    bary = rng.dirichlet(alpha=(2.0, 2.0, 2.0), size=240)
+    pts = bary @ verts
+    ax_a.scatter(pts[:, 0], pts[:, 1], pts[:, 2], s=6,
+                 color=COLORS["empirical"], alpha=0.65,
+                 label=r"feasible image on $S$")
+    # Anti-ideal (at origin of the objective space since f_j = D*_j - D_j)
+    ax_a.scatter([0], [0], [C], color=COLORS["anti_ideal"], marker="x",
+                 s=50, label=r"$D^\star$")
+    ax_a.set_xlabel(r"$f_1$", labelpad=-2)
+    ax_a.set_ylabel(r"$f_2$", labelpad=-2)
+    ax_a.set_zlabel(r"$f_{K+1}$", labelpad=-2)
+    ax_a.set_title(r"(a) feasible image on $S \subset \mathbb{R}^{K+1}$",
+                   fontsize=9)
+    ax_a.view_init(elev=22, azim=42)
+    for lbl in (ax_a.get_xticklabels() + ax_a.get_yticklabels()
+                + ax_a.get_zticklabels()):
+        lbl.set_fontsize(7)
+
+    # -- Panel (b): bijective projection pi to K=2 drought plane --
+    ax_b = fig.add_subplot(gs[0, 1])
+    D_pts = D_star - pts[:, :2]  # recover D from f = D*_j - D_j
+    ax_b.scatter(D_pts[:, 0], D_pts[:, 1], s=8,
+                 color=COLORS["empirical"], alpha=0.65)
+    ax_b.plot(*D_star, "x", color=COLORS["anti_ideal"], mew=2, ms=10,
+              label=r"$D^\star$")
+    ax_b.plot(bounds[0], bounds[0], ".", color=COLORS["historical"],
+              ms=10, label="ideal")
+    ax_b.set_xlim(bounds); ax_b.set_ylim(bounds)
+    ax_b.set_aspect("equal")
+    ax_b.set_xlabel(r"$D_1$")
+    ax_b.set_ylabel(r"$D_2$")
+    ax_b.set_title(r"(b) projection $\pi: S \to \mathbb{R}^K$", fontsize=9)
+    ax_b.legend(fontsize=7, loc="lower right", framealpha=0.9)
+
+    # -- Panel (c): epsilon-box lattice tiling pulled back through pi --
+    ax_c = fig.add_subplot(gs[0, 2])
+    eps = 0.5
+    # Epsilon-box centers in f1, f2 that lie on the C = constant surface
+    # (so f3 = C - f1 - f2 is recoverable). The archive retains one per box.
+    grid_vals = np.arange(0, C + eps, eps)
+    f1, f2 = np.meshgrid(grid_vals, grid_vals)
+    mask = (f1 + f2 <= C)
+    f1_m, f2_m = f1[mask], f2[mask]
+    D1 = D_star[0] - f1_m
+    D2 = D_star[1] - f2_m
+    box = plt.matplotlib.patches.Rectangle(
+        (bounds[0], bounds[0]), C, C, fill=False, lw=0.6,
+        edgecolor=COLORS["muted"], linestyle="--"
+    )
+    ax_c.add_patch(box)
+    ax_c.scatter(D1, D2, s=24, color=COLORS["parametric"],
+                 edgecolor="black", linewidth=0.3,
+                 label=r"$\varepsilon$-box centers")
+    ax_c.plot(*D_star, "x", color=COLORS["anti_ideal"], mew=2, ms=10)
+    ax_c.set_xlim(bounds); ax_c.set_ylim(bounds)
+    ax_c.set_aspect("equal")
+    ax_c.set_xlabel(r"$D_1$")
+    ax_c.set_ylabel(r"$D_2$")
+    ax_c.set_title(r"(c) $\varepsilon$-box tiling pulled back", fontsize=9)
+    ax_c.legend(fontsize=7, loc="lower right", framealpha=0.9)
+
+    return fig
+
+
+# =============================================================================
+# Main-text Figure 4 — Dimension sweep at K = 2 through K = 6
+# =============================================================================
+def _load_dimension_sweep(diag_root) -> Dict[int, Dict[str, object]]:
+    """Load all k{2..6} diagnostic outputs from the shell-vs-interior sweep."""
+    import json
+    from pathlib import Path
+    diag_root = Path(diag_root)
+    out: Dict[int, Dict[str, object]] = {}
+    for k in (2, 3, 4, 5, 6):
+        kd = diag_root / f"k{k}"
+        results_path = kd / "results.json"
+        samples_path = kd / "samples.npz"
+        if not (results_path.exists() and samples_path.exists()):
+            continue
+        results = json.loads(results_path.read_text())
+        samples = dict(np.load(samples_path))
+        out[k] = {"results": results, "samples": samples}
+    return out
+
+
+def fig4_dimension_sweep(
+    diag_root,
+    figsize: Tuple[float, float] = (10.0, 7.0),
+) -> plt.Figure:
+    """Manuscript Figure 4 — interior-filling coverage across K = 2..6.
+
+    Four panels (2x2):
+      (a) K=3 scatter of MOEA-FIND archive inside the feasible K-ball
+          compared to an equal-size Latin hypercube reference (x1-x2
+          projection with ball outline).
+      (b) Mean Manhattan distance from the anti-ideal versus K, one line
+          per sampler (MOEA-FIND, uniform-in-ball, LHS-in-ball,
+          Sobol-in-ball).
+      (c) Interior mass fraction versus K.
+      (d) Signed orthant occupancy fraction versus K.
+
+    Parameters
+    ----------
+    diag_root : path-like
+        Directory containing k{2..6}/results.json and samples.npz, e.g.
+        ``outputs/diag_shell_vs_interior``.
+    """
+    apply_style()
+    data = _load_dimension_sweep(diag_root)
+    if not data:
+        raise FileNotFoundError(
+            f"No k{{2..6}} outputs found under {diag_root}"
+        )
+
+    fig = plt.figure(figsize=figsize)
+    gs = GridSpec(2, 2, figure=fig, wspace=0.28, hspace=0.32)
+    ax_a = fig.add_subplot(gs[0, 0])
+    ax_b = fig.add_subplot(gs[0, 1])
+    ax_c = fig.add_subplot(gs[1, 0])
+    ax_d = fig.add_subplot(gs[1, 1])
+
+    sampler_colors = {
+        "MOEA-FIND": COLORS["parametric"],
+        "uniform_in_ball": COLORS["muted"],
+        "lhs_in_ball": COLORS["empirical"],
+        "sobol_in_ball": COLORS["sobol"],
+    }
+    sampler_labels = {
+        "MOEA-FIND": "MOEA-FIND",
+        "uniform_in_ball": "uniform",
+        "lhs_in_ball": "LHS",
+        "sobol_in_ball": "Sobol",
+    }
+    sampler_keys = ["MOEA-FIND", "uniform_in_ball", "lhs_in_ball",
+                    "sobol_in_ball"]
+    samples_map = {
+        "MOEA-FIND": "borg",
+        "uniform_in_ball": "unif",
+        "lhs_in_ball": "lhs",
+        "sobol_in_ball": "sobol",
+    }
+
+    # --- Panel (a): K=3 projected scatter (x1, x2) with ball outline ---
+    if 3 in data:
+        k3 = data[3]
+        samples = k3["samples"]
+        results = k3["results"]
+        radius = results.get("ball_radius", 2.5)
+        # Ball outline in x1-x2 projection (disc of same radius)
+        theta = np.linspace(0, 2 * np.pi, 200)
+        ax_a.plot(radius * np.cos(theta), radius * np.sin(theta),
+                  color="black", lw=0.8, ls="--",
+                  label=r"feasible $K$-ball")
+        borg = samples["borg"]
+        lhs = samples["lhs"]
+        # Downsample for visual clarity
+        n_show = min(800, len(borg))
+        rng = np.random.default_rng(0)
+        idx_b = rng.choice(len(borg), size=n_show, replace=False)
+        idx_l = rng.choice(len(lhs), size=n_show, replace=False)
+        ax_a.scatter(lhs[idx_l, 0], lhs[idx_l, 1], s=6,
+                     color=COLORS["muted"], alpha=0.35, label="LHS")
+        ax_a.scatter(borg[idx_b, 0], borg[idx_b, 1], s=6,
+                     color=COLORS["parametric"], alpha=0.6,
+                     label="MOEA-FIND")
+        ax_a.set_aspect("equal")
+        ax_a.set_xlim(-3.2, 3.2); ax_a.set_ylim(-3.2, 3.2)
+        ax_a.set_xlabel(r"$x_1$"); ax_a.set_ylabel(r"$x_2$")
+        ax_a.legend(fontsize=7, loc="upper right", framealpha=0.9)
+    ax_a.set_title(r"(a) $K=3$ archive inside feasible $K$-ball", fontsize=10)
+
+    # Helper to pull per-K metric series
+    def _series(metric_key: str, subkey: str = None):
+        Ks = sorted(data.keys())
+        series: Dict[str, List[float]] = {k: [] for k in sampler_keys}
+        for K in Ks:
+            r = data[K]["results"]
+            for s in sampler_keys:
+                if s in r:
+                    val = r[s][metric_key]
+                    if subkey is not None:
+                        val = val[subkey]
+                    series[s].append(val)
+                else:
+                    series[s].append(np.nan)
+        return Ks, series
+
+    def _plot_series(ax, Ks, series, ylabel, title):
+        for s in sampler_keys:
+            ax.plot(Ks, series[s], "-o", color=sampler_colors[s],
+                    label=sampler_labels[s], markersize=5, lw=1.4)
+        ax.set_xticks(Ks)
+        ax.set_xlabel(r"target dimensionality $K$")
+        ax.set_ylabel(ylabel)
+        ax.set_title(title, fontsize=10)
+        ax.legend(fontsize=7, loc="best", framealpha=0.9)
+
+    # --- Panel (b): mean Manhattan distance from anti-ideal vs K ---
+    Ks, ser_mean = _series("dist_from_D*", subkey="mean")
+    _plot_series(ax_b, Ks, ser_mean,
+                 r"mean $L^1$ distance from $D^\star$",
+                 r"(b) Manhattan distance to anti-ideal")
+
+    # --- Panel (c): interior mass fraction vs K ---
+    Ks, ser_int = _series("interior_fraction")
+    _plot_series(ax_c, Ks, ser_int,
+                 "interior mass fraction",
+                 "(c) interior mass fraction")
+    ax_c.set_ylim(0.0, 1.0)
+
+    # --- Panel (d): orthant occupancy fraction vs K ---
+    Ks, ser_orth = _series("orthant_occupancy", subkey="fraction")
+    _plot_series(ax_d, Ks, ser_orth,
+                 "signed orthant occupancy",
+                 r"(d) signed orthant occupancy ($2^K$ orthants)")
+    ax_d.set_ylim(0.0, 1.05)
+
+    return fig
+
+
+# =============================================================================
+# Main-text Figure 1 — Parameter space versus drought hazard space
+# =============================================================================
+def fig1_param_vs_hazard_space(
+    param_pts: np.ndarray,
+    hazard_pts: np.ndarray,
+    historical: Optional[np.ndarray] = None,
+    param_labels: Tuple[str, str] = (r"$x_1$", r"$x_2$"),
+    hazard_labels: Tuple[str, str] = (
+        r"mean drought duration $D_2$ (months)",
+        r"mean drought severity $D_1$ (SSI units)",
+    ),
+    figsize: Tuple[float, float] = (10.5, 3.4),
+) -> plt.Figure:
+    """Manuscript Figure 1 — parameter space vs drought hazard space contrast.
+
+    Three panels: (a) space-filling LHS design in two generator decision
+    variables, colored by position in the design; (b) schematic arrow
+    labeled g denoting the generator map; (c) the same points projected
+    into the SSI-3 drought hazard space under g, coloured identically
+    to panel a, with the historical reference drought marked.
+
+    Parameters
+    ----------
+    param_pts : (n, 2) array
+        Latin hypercube design in two generator decision variables.
+    hazard_pts : (n, 2) array
+        Same n points projected into (duration, severity) drought
+        hazard space under the generator map. Rows must correspond to
+        ``param_pts`` rows.
+    historical : (2,) array, optional
+        Historical reference drought in (duration, severity) for panel c.
+    """
+    apply_style()
+    if param_pts.shape[0] != hazard_pts.shape[0]:
+        raise ValueError("param_pts and hazard_pts must have same length")
+
+    fig = plt.figure(figsize=figsize)
+    gs = GridSpec(1, 3, figure=fig, width_ratios=[1.0, 0.45, 1.0], wspace=0.28)
+
+    # Colour by position in parameter space (left-to-right gradient)
+    order = np.argsort(param_pts[:, 0] + 0.5 * param_pts[:, 1])
+    rank = np.empty_like(order)
+    rank[order] = np.arange(len(order))
+    cmap = plt.get_cmap("viridis")
+    colors = cmap(rank / max(1, len(order) - 1))
+
+    # -- Panel (a): parameter space --
+    ax_a = fig.add_subplot(gs[0, 0])
+    ax_a.scatter(param_pts[:, 0], param_pts[:, 1], s=14, c=colors,
+                 edgecolor="black", linewidth=0.2)
+    ax_a.set_xlabel(param_labels[0])
+    ax_a.set_ylabel(param_labels[1])
+    ax_a.set_title("(a) parameter space: LHS design", fontsize=10)
+    ax_a.set_aspect("equal", adjustable="box")
+
+    # -- Panel (b): generator map arrow --
+    ax_b = fig.add_subplot(gs[0, 1])
+    ax_b.set_xlim(0, 1); ax_b.set_ylim(0, 1)
+    ax_b.axis("off")
+    ax_b.annotate(
+        "", xy=(0.95, 0.5), xytext=(0.05, 0.5),
+        arrowprops=dict(arrowstyle="->", lw=2.0, color=COLORS["historical"]),
+    )
+    ax_b.text(0.5, 0.62, r"generator map $g$",
+              ha="center", va="bottom", fontsize=11)
+    ax_b.text(
+        0.5, 0.30,
+        "Kirsch-Nowak\n+ SSI-3 extraction",
+        ha="center", va="top", fontsize=8, color=COLORS["muted"],
+    )
+
+    # -- Panel (c): hazard space projection --
+    ax_c = fig.add_subplot(gs[0, 2])
+    ax_c.scatter(hazard_pts[:, 0], hazard_pts[:, 1], s=14, c=colors,
+                 edgecolor="black", linewidth=0.2)
+    if historical is not None:
+        ax_c.plot(historical[0], historical[1], "x",
+                  color=COLORS["anti_ideal"], mew=2, ms=12,
+                  label="historical drought")
+        ax_c.legend(fontsize=8, loc="best", framealpha=0.9)
+    ax_c.set_xlabel(hazard_labels[0])
+    ax_c.set_ylabel(hazard_labels[1])
+    ax_c.set_title("(c) drought hazard space: projection under $g$",
+                   fontsize=10)
+
     return fig

@@ -287,3 +287,240 @@ def plot_flow_duration_curve(
     ax.legend(fontsize=8)
     fig.tight_layout()
     return fig, ax
+
+
+# -----------------------------------------------------------------------------
+# Figure 5 — SSI-3 drought metric definitions example
+# -----------------------------------------------------------------------------
+#
+# Manuscript §4.3 / Figure 5. This is a didactic figure: it shows how SSI-3
+# is computed from a historical monthly streamflow series and how mean
+# severity, mean duration, and peak severity month are extracted from a
+# representative drought event. The figure is rendered from a cached
+# daily USGS CSV under ``outputs/data_cache/`` — not from SynHydro — so
+# it is self-contained and renders without the SynHydro dependency.
+# -----------------------------------------------------------------------------
+
+
+def _daily_csv_to_monthly(csv_path) -> "pd.Series":
+    """Load a cached daily USGS CSV and aggregate to monthly mean flow."""
+    import pandas as pd
+    df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+    col = df.columns[0] if df.shape[1] >= 1 else "flow_cfs"
+    monthly = df[col].resample("MS").mean()
+    monthly.name = "flow_cfs"
+    return monthly
+
+
+def _ssi3_from_monthly(monthly: "pd.Series") -> "pd.Series":
+    """Compute SSI-3 from a monthly flow series using a per-month gamma fit.
+
+    Light-weight replacement for SynHydro's SSI calculator sufficient for
+    a didactic figure. Steps:
+        1. Take a centered 3-month rolling mean (SSI-3 accumulation).
+        2. For each calendar month, fit a two-parameter gamma to the
+           non-zero historical values.
+        3. Transform the 3-month accumulated flow to a standard normal
+           via the gamma CDF and the inverse normal CDF.
+    """
+    import pandas as pd
+    from scipy.stats import gamma, norm
+
+    acc = monthly.rolling(3, min_periods=3).mean()
+    ssi = pd.Series(index=acc.index, dtype=float)
+    for m in range(1, 13):
+        mask = acc.index.month == m
+        vals = acc[mask].dropna()
+        positive = vals[vals > 0]
+        if len(positive) < 10:
+            ssi[mask] = np.nan
+            continue
+        shape, loc, scale = gamma.fit(positive, floc=0.0)
+        p = gamma.cdf(acc[mask].values, shape, loc=loc, scale=scale)
+        # Clip to (0,1) to avoid inf under inverse normal
+        p = np.clip(p, 1e-6, 1 - 1e-6)
+        ssi[mask] = norm.ppf(p)
+    return ssi
+
+
+def _detect_drought_events(ssi: "pd.Series") -> list:
+    """Detect SSI-based drought events using the SynHydro convention.
+
+    Rules:
+        - Onset at SSI < 0.
+        - Event becomes "critical" once SSI <= -1.
+        - Termination after three consecutive SSI > 0 months.
+        - Only critical events are returned.
+
+    Returns a list of dicts with keys: ``start``, ``end``, ``duration``,
+    ``severity`` (min SSI), ``avg_severity`` (mean SSI), and
+    ``max_severity_date`` (the timestamp of the minimum SSI).
+    """
+    events = []
+    drought_idx: list = []
+    in_critical = False
+    pos = 0
+    vals = ssi.values
+    dates = ssi.index
+    for i, v in enumerate(vals):
+        if np.isnan(v):
+            continue
+        if v < 0:
+            drought_idx.append(i)
+            pos = 0
+            if v <= -1:
+                in_critical = True
+        else:
+            if in_critical:
+                pos += 1
+                if pos >= 3:
+                    arr = vals[drought_idx]
+                    peak_i = drought_idx[int(np.argmin(arr))]
+                    events.append({
+                        "start": dates[drought_idx[0]],
+                        "end": dates[drought_idx[-1]],
+                        "duration": len(drought_idx),
+                        "severity": float(arr.min()),
+                        "avg_severity": float(arr.mean()),
+                        "max_severity_date": dates[peak_i],
+                    })
+                    in_critical = False
+                    drought_idx = []
+                    pos = 0
+            else:
+                drought_idx = []
+                pos = 0
+    return events
+
+
+def fig5_ssi_definitions_example(
+    monthly_flow_csv,
+    figsize: Tuple[float, float] = (7.0, 4.8),
+    event_choice: str = "most_severe",
+):
+    """Manuscript §4.3 / Figure 5 — SSI-3 drought metric definitions example.
+
+    Three-panel figure:
+
+    (a) Full historical SSI-3 time series with the ``SSI = -1`` critical
+        threshold line and all detected critical drought events shaded.
+    (b) Zoom on a representative drought event with onset, trough (peak
+        severity month), and recovery annotated.
+    (c) Annotation box defining mean severity, mean duration, and mean
+        peak severity month as used by the MOEA-FIND objectives.
+
+    Parameters
+    ----------
+    monthly_flow_csv : str or Path
+        Path to a cached daily USGS CSV under ``outputs/data_cache/``.
+        The file must have a datetime index and a single flow column.
+    figsize : tuple of float
+        Figure size in inches.
+    event_choice : {"most_severe", "longest", "first"}
+        How to pick the representative event drawn in panel (b).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    from matplotlib.gridspec import GridSpec
+
+    apply_style()
+
+    monthly = _daily_csv_to_monthly(monthly_flow_csv)
+    ssi = _ssi3_from_monthly(monthly)
+    events = _detect_drought_events(ssi)
+    if not events:
+        raise RuntimeError("No critical drought events detected in the "
+                           "cached historical record; Figure 5 needs real "
+                           "drought events to illustrate the definitions.")
+
+    if event_choice == "most_severe":
+        ev = min(events, key=lambda e: e["severity"])
+    elif event_choice == "longest":
+        ev = max(events, key=lambda e: e["duration"])
+    else:
+        ev = events[0]
+
+    fig = plt.figure(figsize=figsize)
+    gs = GridSpec(2, 2, figure=fig, height_ratios=[1.0, 1.2],
+                  width_ratios=[1.4, 1.0], hspace=0.45, wspace=0.3)
+
+    # -- Panel (a): full SSI-3 timeline --
+    ax_a = fig.add_subplot(gs[0, :])
+    ax_a.plot(ssi.index, ssi.values, color=COLORS["historical"], linewidth=0.8)
+    ax_a.axhline(-1.0, color=COLORS["anti_ideal"], linestyle="--",
+                 linewidth=0.8, label="SSI = -1 (critical)")
+    for e in events:
+        ax_a.axvspan(e["start"], e["end"], alpha=0.18,
+                     color=COLORS["anti_ideal"])
+    ax_a.axvspan(ev["start"], ev["end"], alpha=0.35,
+                 color=COLORS["highlight"], label="representative event")
+    ax_a.set_ylabel("SSI-3")
+    ax_a.set_title(f"(a) Historical SSI-3 with {len(events)} critical events")
+    ax_a.legend(fontsize=7, loc="lower left", framealpha=0.9)
+
+    # -- Panel (b): zoom on the representative event --
+    ax_b = fig.add_subplot(gs[1, 0])
+    pad = max(6, ev["duration"])
+    zoom_start = ev["start"] - pd_offset_months(pad)
+    zoom_end = ev["end"] + pd_offset_months(pad)
+    mask = (ssi.index >= zoom_start) & (ssi.index <= zoom_end)
+    ax_b.plot(ssi.index[mask], ssi.values[mask],
+              color=COLORS["historical"], linewidth=1.1)
+    ax_b.axhline(-1.0, color=COLORS["anti_ideal"], linestyle="--",
+                 linewidth=0.8)
+    ax_b.axhline(0.0, color=COLORS["muted"], linestyle=":", linewidth=0.6)
+    ax_b.axvspan(ev["start"], ev["end"], alpha=0.25,
+                 color=COLORS["highlight"])
+    ax_b.plot(ev["max_severity_date"], ev["severity"], "v",
+              color=COLORS["anti_ideal"], markersize=9,
+              markeredgecolor="black", markeredgewidth=0.6)
+    ax_b.annotate(
+        f"peak\nmonth {ev['max_severity_date'].month}",
+        xy=(ev["max_severity_date"], ev["severity"]),
+        xytext=(8, -10), textcoords="offset points", fontsize=7,
+        arrowprops=dict(arrowstyle="->", lw=0.6),
+    )
+    ax_b.set_ylabel("SSI-3")
+    ax_b.set_title("(b) Representative event")
+    ax_b.tick_params(axis="x", labelsize=7)
+    # Light rotation of x tick labels
+    for lbl in ax_b.get_xticklabels():
+        lbl.set_rotation(25)
+        lbl.set_ha("right")
+
+    # -- Panel (c): definitions box --
+    ax_c = fig.add_subplot(gs[1, 1])
+    ax_c.axis("off")
+    ax_c.set_title("(c) Drought characteristic definitions")
+    lines = [
+        r"$d_1$  mean severity   $= \overline{\min\,\mathrm{SSI}_{\mathrm{event}}}$",
+        r"$d_2$  mean duration   $=$ mean months below onset",
+        r"$d_3$  peak severity   $=$ cyclic mean of months of",
+        r"        month               per-event SSI minimum",
+        "",
+        r"L1 distance to target $D^*$:",
+        r"  $f_j = |d_j - D^*_j|$  (severity, duration)",
+        r"  $f_j = \min(|m - m^*|,\,12 - |m - m^*|)$ (cyclic month)",
+        r"  $f_{k+1} = \sum_j f_j$   (Manhattan norm)",
+        "",
+        f"Representative event: dur = {ev['duration']} mo, "
+        f"min SSI = {ev['severity']:.2f}, "
+        f"peak month = {ev['max_severity_date'].month}",
+    ]
+    for i, line in enumerate(lines):
+        ax_c.text(0.02, 0.95 - 0.08 * i, line,
+                  transform=ax_c.transAxes, fontsize=8,
+                  family="serif", va="top")
+
+    fig.tight_layout()
+    return fig
+
+
+def pd_offset_months(n: int):
+    """Return a pandas DateOffset of n months. Defined at module level
+    so `fig5_ssi_definitions_example` stays importable when the caller
+    has not pre-imported pandas."""
+    import pandas as pd
+    return pd.DateOffset(months=int(n))
