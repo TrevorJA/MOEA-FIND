@@ -37,6 +37,50 @@ def manhattan_norm(x: np.ndarray, anti_ideal: np.ndarray) -> float:
     return float(np.sum(np.abs(x - anti_ideal)))
 
 
+def cyclic_l1_distance(a: float, b: float, period: float = 12.0) -> float:
+    """Wrapped L1 distance for cyclic (e.g. month-of-year) features.
+
+    For a cyclic coordinate with period P (e.g. 12 months), the shortest
+    L1 distance between two values is min(|a - b|, P - |a - b|). This
+    preserves the hyperplane identity in the MOEA-FIND L1-simplex theorem
+    (§3.2) because the objective is still a sum of nonnegative terms.
+
+    Args:
+        a, b: Cyclic coordinates in the same unit (e.g. both months).
+        period: Period length. Default 12 for month-of-year.
+
+    Returns:
+        Wrapped distance in [0, period / 2].
+    """
+    d = abs(float(a) - float(b))
+    return float(min(d, period - d))
+
+
+def cyclic_mean(values: np.ndarray, period: float = 12.0) -> float:
+    """Arithmetic mean of a cyclic coordinate via sin/cos embedding.
+
+    Handles the December/January wraparound correctly: `cyclic_mean`
+    of (1, 12) is ~12.5 mod period, not 6.5. Used for the per-trace
+    aggregation of peak-severity months across events.
+
+    Args:
+        values: 1D array of cyclic coordinates (e.g. months 1..12).
+        period: Period length. Default 12.
+
+    Returns:
+        Cyclic mean in [0, period).
+    """
+    if len(values) == 0:
+        return 0.0
+    theta = 2.0 * np.pi * np.asarray(values, dtype=float) / period
+    mean_sin = np.mean(np.sin(theta))
+    mean_cos = np.mean(np.cos(theta))
+    angle = np.arctan2(mean_sin, mean_cos)
+    if angle < 0:
+        angle += 2.0 * np.pi
+    return float(angle * period / (2.0 * np.pi))
+
+
 def analytic_objectives(
     dvs: np.ndarray,
     anti_ideal: np.ndarray,
@@ -216,12 +260,25 @@ def compute_ssi_drought_characteristics(
             "n_events": 0,
         }
 
+    # Cyclic mean of peak-severity calendar month across all events.
+    # max_severity_date is a pandas Timestamp; extract .month (1..12) per
+    # event and combine with cyclic_mean() to handle the Dec/Jan wraparound.
+    if "max_severity_date" in dm.columns:
+        try:
+            peak_months = pd.to_datetime(dm["max_severity_date"]).dt.month.values
+            peak_severity_month = cyclic_mean(peak_months, period=12.0)
+        except Exception:
+            peak_severity_month = 0.0
+    else:
+        peak_severity_month = 0.0
+
     return {
         "frequency": float(len(dm) / n_years * 10),
         "mean_duration": float(dm["duration"].mean()),
         "mean_magnitude": float(dm["magnitude"].abs().mean()),
         "mean_severity": float(dm["severity"].abs().mean()),
         "mean_avg_severity": float(dm["avg_severity"].abs().mean()),
+        "peak_severity_month": float(peak_severity_month),
         "max_duration": float(dm["duration"].max()),
         "max_magnitude": float(dm["magnitude"].abs().max()),
         "worst_severity": float(dm["severity"].abs().max()),
@@ -330,42 +387,88 @@ def compute_drought_characteristics(
     }
 
 
+#: Drought characteristic names whose natural metric is a cyclic calendar
+#: month (1..12). The MOEA-FIND L1-simplex theorem supports cyclic axes
+#: through the wrapped distance cyclic_l1_distance (§3.3 of the manuscript).
+CYCLIC_MONTH_KEYS = frozenset({
+    "peak_severity_month",
+    "onset_month",
+})
+
+
 def drought_objectives(
     synthetic_chars: dict,
     anti_ideal: np.ndarray,
     objective_keys: tuple = ("mean_duration", "mean_avg_severity"),
+    target: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Compute MOEA-FIND objectives from drought characteristics.
 
-    Objectives are the actual drought metrics (not ratios). The Pareto
-    front maps directly to physically interpretable drought space:
-    duration in months, intensity in cfs deficit, etc.
+    Produces the (k+1)-objective vector used by Borg MOEA:
 
-    J_i = D_i (actual metric value)
-    J_{k+1} = ||D - D*||_1 (Manhattan norm from anti-ideal)
+        f_j(x) = |D_j(x) - D*_j|              for j = 1..k
+        f_{k+1}(x) = sum_j f_j(x)             (L1 Manhattan norm)
 
-    All objectives are MINIMIZED. The anti-ideal is placed at the
-    maximum plausible values of each metric, so the Manhattan norm
-    forces solutions toward the anti-ideal (more severe droughts)
-    while individual objectives push toward mild droughts.
+    For any objective whose name appears in :data:`CYCLIC_MONTH_KEYS`,
+    the per-component distance |D_j - D*_j| is replaced by the wrapped
+    cyclic L1 distance with period 12 months. This preserves the
+    L1-simplex theorem because the objective is still a sum of
+    nonnegative absolute-value terms.
+
+    The function supports two target conventions for backwards
+    compatibility:
+
+    - If ``target`` is None, the historical anti-ideal pattern is used:
+      f_j = D_j (i.e. the raw metric value). The simplex identity still
+      holds with J_{k+1} = sum_j |D_j - 0|. This matches the pre-2026-04
+      behavior of the MOEA-FIND Phase 1 experiments.
+    - If ``target`` is supplied, it is treated as the user-specified
+      drought characteristic target D* and f_j = d(D_j, D*_j), where d
+      is the cyclic L1 distance for cyclic axes and the absolute-value
+      distance otherwise. This is the convention described in §3 of
+      the manuscript.
 
     Args:
-        synthetic_chars: Drought characteristics of synthetic trace.
-        anti_ideal: Anti-ideal point in actual metric space (k-dim).
-            E.g., [max_duration_months, max_intensity_cfs].
+        synthetic_chars: Drought characteristics of synthetic trace, e.g.
+            from :func:`compute_ssi_drought_characteristics`.
+        anti_ideal: Anti-ideal point in metric space; used for the
+            target=None path and to set dimensionality. (k-dim.)
         objective_keys: Which characteristics to use as objectives.
+        target: Optional drought characteristic target D* in the same
+            order as ``objective_keys``. If provided, all f_j become
+            cyclic-aware absolute deviations from D*_j.
 
     Returns:
-        Objective vector (k+1 dimensional).
+        Objective vector (k+1 dimensional). Element k is the L1 sum of
+        elements 0..k-1 (the Manhattan-norm auxiliary objective).
     """
     k = len(objective_keys)
     metrics = np.zeros(k)
     for i, key in enumerate(objective_keys):
         metrics[i] = synthetic_chars.get(key, 0.0)
 
+    if target is None:
+        # Legacy path: f_j = D_j, Manhattan norm from anti_ideal.
+        objs = np.empty(k + 1)
+        objs[:k] = metrics
+        objs[k] = manhattan_norm(metrics, anti_ideal)
+        return objs
+
+    # Target-aware path with cyclic-aware per-component distance.
+    target = np.asarray(target, dtype=float)
+    assert target.shape == (k,), \
+        f"target must be length {k}, got {target.shape}"
+
+    deviations = np.zeros(k)
+    for i, key in enumerate(objective_keys):
+        if key in CYCLIC_MONTH_KEYS:
+            deviations[i] = cyclic_l1_distance(metrics[i], target[i], period=12.0)
+        else:
+            deviations[i] = abs(metrics[i] - target[i])
+
     objs = np.empty(k + 1)
-    objs[:k] = metrics
-    objs[k] = manhattan_norm(metrics, anti_ideal)
+    objs[:k] = deviations
+    objs[k] = float(np.sum(deviations))  # L1 simplex identity by construction
     return objs
 
 
