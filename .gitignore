@@ -44,3 +44,4 @@ manuscript/figures/*.pdf
 manuscript/figures/*.png
 # Project-level figure outputs (regenerable) — root only
 /figures/
+*/slurm_logs/*
