@@ -43,12 +43,12 @@ The Reed group (Cornell) extensively employs synthetic streamflow generation wit
 
 ---
 
-## 2. Kirsch-Nowak Block Bootstrap Methods
+## 2. Kirsch-Nowak Modified Fractional Gaussian Noise Methods
 
 ### Kirsch et al. (2013)
 **Citation:** Kirsch, B.R., Characklis, G.W., and Zeff, H.B. (2013). Evaluating the impact of alternative hydro-climate scenarios on transfer agreements: Practical improvement for generating synthetic streamflows. Journal of Water Resources Planning and Management, 139(4), 396-406.
 
-The standard block bootstrap for synthetic streamflow. Operates in log-space: (1) log-standardize historical flows, (2) moving block bootstrap in log-space, (3) apply Cholesky decomposition for historical correlation, (4) de-standardize and back-transform. Addresses Fractional Gaussian Noise limitations. Widely implemented.
+Modified fractional Gaussian noise with uncorrelated monthly bootstrap resampling followed by Cholesky correlation restoration. Operates via monthly resampling with independent draws from historical records, then imposing historical monthly correlation structure through Cholesky decomposition of the twelve-by-twelve monthly correlation matrix in Gaussian space. Addresses Fractional Gaussian Noise limitations while preserving seasonal correlation. Widely implemented.
 
 **Relevance:** Core generation mechanism for MOEA-FIND's nonparametric pathway.
 

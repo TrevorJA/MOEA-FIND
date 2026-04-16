@@ -1,20 +1,29 @@
-"""Script 04 — Single-site Kirsch MOEA-FIND (manuscript §6.1-6.2, Fig 5-6).
+"""Script 04 — Single-site Kirsch MOEA-FIND (manuscript Fig 5-6).
 
-Couples MM Borg MOEA to the validated SynHydro Kirsch-Nowak generator via
-KirschBorgWrapper. Supports both DV injection modes (index, residual) and
-SSI-based drought objectives (mean_duration, mean_avg_severity) plus the
-Manhattan-norm auxiliary objective.
+Couples Borg MOEA (or EpsNSGAII dev fallback) to the validated SynHydro
+Kirsch-Nowak generator via KirschBorgWrapper. Supports both DV injection
+modes (index, residual), SSI-based drought objectives, and bootstrap-
+calibrated plausibility constraints.
 
-Run locally (serial Borg/platypus fallback):
+Algorithm selection order:
+    1. ``--algorithm`` CLI arg
+    2. ``MOEA_FIND_ALGORITHM`` env var  (set by slurm scripts)
+    3. Default: ``eps_nsga2`` (safe for local testing)
+
+Constraint loading:
+    If ``--constraints-json`` points to the output of
+    ``scripts/diag_constraint_calibration.py``, calibrated tolerances are
+    loaded. Otherwise constraints are disabled and a warning is printed.
+
+Run locally (serial EpsNSGAII, unconstrained, 20 000 NFE):
     python scripts/04_kirsch_single_site.py --nfe 20000 --mode residual --plot
 
-Run on HPC (MM Borg via MPI):
-    sbatch scripts/04_kirsch_single_site.slurm
+Run locally with placeholder constraints:
+    python scripts/04_kirsch_single_site.py --nfe 20000 --mode residual \\
+        --constraints-json outputs/diag_constraint_calibration/calibrated_tolerances.json
 
-Outputs under outputs/exp04_kirsch_single_site/<mode>/:
-    - results.json  (Pareto objectives, drought characteristics, timing)
-    - pareto.npz    (DVs, objectives)
-    - config.json
+Run on HPC (MM Borg via MPI, constraints, 500 000 NFE):
+    sbatch scripts/04_kirsch_single_site.slurm
 """
 
 from __future__ import annotations
@@ -36,6 +45,7 @@ from src.experiment_utils import (  # noqa: E402
     run_experiment,
 )
 from src.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
+from src.constraints import ConstraintConfig  # noqa: E402
 
 OUTPUT_SLUG = "exp04_kirsch_single_site"
 
@@ -52,15 +62,54 @@ def _build_kirsch_generator(monthly_2d: np.ndarray):
     return gen
 
 
+def _load_constraints(
+    json_path: Path | None,
+    site_label: str,
+    T_years: int,
+) -> ConstraintConfig | None:
+    """Load calibrated ConstraintConfig if JSON exists, else return None."""
+    if json_path is None:
+        return None
+    json_path = Path(json_path)
+    if not json_path.exists():
+        print(f"[04] WARNING: constraints JSON not found at {json_path}; "
+              f"running unconstrained.")
+        return None
+    try:
+        cfg = ConstraintConfig.from_calibration_json(
+            json_path, site_label=site_label, T_years=T_years,
+        )
+        print(f"[04] Loaded constraints from {json_path}")
+        print(f"     annual_mean_tol={cfg.annual_mean_tol:.3f}, "
+              f"annual_cv_tol={cfg.annual_cv_tol:.3f}, "
+              f"lag1_ac_tol={cfg.lag1_ac_tol:.3f}, "
+              f"non_drought_mean_tol={cfg.non_drought_mean_tol:.3f}, "
+              f"seasonal_cycle_tol={cfg.seasonal_cycle_tol:.3f}")
+        return cfg
+    except Exception as exc:
+        print(f"[04] WARNING: failed to load constraints: {exc}; "
+              f"running unconstrained.")
+        return None
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--nfe", type=int, default=20_000)
-    p.add_argument("--n-years", type=int, default=30)
+    p.add_argument("--n-years", type=int, default=20)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--ssi", type=int, default=3, choices=[1, 3, 6, 12])
     p.add_argument("--mode", choices=["index", "residual"], default="residual")
-    p.add_argument("--constrained", action="store_true",
-                   help="Add lag-1 ACF and non-drought annual stats constraints (Exp 2.2).")
+    p.add_argument("--algorithm", default="eps_nsga2",
+                   choices=["borg_mm", "borg_serial", "eps_nsga2"],
+                   help="MOEA backend. Overridden by MOEA_FIND_ALGORITHM env var.")
+    p.add_argument("--constraints-json", type=Path, default=None,
+                   help="Path to calibrated_tolerances.json from Block A.")
+    p.add_argument("--site-label", default="cannonsville")
+    p.add_argument("--n-islands", type=int, default=1,
+                   help="Number of islands for MM Borg.")
+    p.add_argument("--checkpoint-freq", type=int, default=10000)
+    p.add_argument("--old-checkpoint", type=Path, default=None,
+                   help="Path to a checkpoint file to resume from.")
     p.add_argument("--plot", action="store_true")
     p.add_argument("--output-dir", type=Path,
                    default=PROJECT_ROOT / "outputs" / OUTPUT_SLUG)
@@ -68,81 +117,121 @@ def main():
 
     out = args.output_dir / args.mode
     out.mkdir(parents=True, exist_ok=True)
-    (out / "config.json").write_text(json.dumps({
-        "script": "04_kirsch_single_site.py",
-        "manuscript_section": (
-            "§6.2 Constrained Pareto (Fig 6)" if args.constrained
-            else "§6.1 Unconstrained Pareto (Fig 5)"
-        ),
-        "nfe": args.nfe, "n_years": args.n_years, "seed": args.seed,
-        "ssi": args.ssi, "mode": args.mode, "constrained": args.constrained,
-    }, indent=2))
 
+    # --- Data ---
     cache_dir = PROJECT_ROOT / "outputs" / "data_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     monthly_2d, monthly_1d = prepare_data(cache_dir)
 
+    # --- SSI characterisation ---
     objective_keys = ("mean_duration", "mean_avg_severity")
-    ssi_hist, ssi_calc, hist_chars = compute_historical_ssi_chars(monthly_1d, args.ssi)
+    ssi_hist, ssi_calc, hist_chars = compute_historical_ssi_chars(
+        monthly_1d, args.ssi
+    )
     anti_ideal = compute_ssi_anti_ideal(hist_chars, objective_keys)
     print(f"[04] historical SSI-{args.ssi}: n={hist_chars['n_events']}, "
           f"dur={hist_chars['mean_duration']:.1f}mo, "
           f"severity={hist_chars['mean_avg_severity']:.3f}")
     print(f"[04] anti-ideal: {anti_ideal}")
 
+    # --- Generator ---
     kirsch_gen = _build_kirsch_generator(monthly_2d)
-    generator = KirschBorgWrapper(kirsch_gen, mode=args.mode, n_years_out=args.n_years)
-
-    result = run_experiment(
-        monthly_2d, monthly_1d, generator,
-        f"Kirsch ({args.mode})",
-        objective_keys, anti_ideal, args.ssi,
-        args.n_years, args.nfe, args.seed,
+    generator = KirschBorgWrapper(
+        kirsch_gen, mode=args.mode, n_years_out=args.n_years,
     )
 
-    (out / "results.json").write_text(json.dumps(result, indent=2, default=str))
-    print(f"[04] Pareto: {len(result.get('pareto_objs', []))} solutions")
+    # --- Constraints ---
+    constraint_cfg = _load_constraints(
+        args.constraints_json, args.site_label, args.n_years,
+    )
+    constrained = constraint_cfg is not None
+
+    # --- Config dump ---
+    (out / "config.json").write_text(json.dumps({
+        "script": "04_kirsch_single_site.py",
+        "algorithm": args.algorithm,
+        "nfe": args.nfe,
+        "n_years": args.n_years,
+        "seed": args.seed,
+        "ssi": args.ssi,
+        "mode": args.mode,
+        "constrained": constrained,
+        "constraints_json": str(args.constraints_json) if args.constraints_json else None,
+        "n_islands": args.n_islands,
+    }, indent=2))
+
+    # --- Run ---
+    algo_kwargs = {}
+    if args.algorithm in ("borg_mm", "borg_serial"):
+        algo_kwargs["checkpoint_freq"] = args.checkpoint_freq
+    if args.algorithm == "borg_mm":
+        algo_kwargs["n_islands"] = args.n_islands
+    if args.old_checkpoint:
+        algo_kwargs["old_checkpoint"] = str(args.old_checkpoint)
+
+    result = run_experiment(
+        monthly_2d=monthly_2d,
+        monthly_1d=monthly_1d,
+        generator=generator,
+        generator_name=f"Kirsch ({args.mode})",
+        objective_keys=objective_keys,
+        anti_ideal=anti_ideal,
+        timescale=args.ssi,
+        n_years_out=args.n_years,
+        nfe=args.nfe,
+        seed=args.seed,
+        algorithm=args.algorithm,
+        constraint_cfg=constraint_cfg,
+        output_dir=out,
+        **algo_kwargs,
+    )
+
+    (out / "results.json").write_text(
+        json.dumps(result, indent=2, default=str)
+    )
+    print(f"[04] Pareto: {result.get('n_pareto', 0)} solutions")
     print(f"     wrote {out / 'results.json'}")
 
+    # --- Plots ---
     if args.plot:
-        from src.plotting.drought_space import plot_scatter_with_marginals
-        from src.plotting.trace_diagnostics import (
-            plot_autocorrelation_comparison, plot_flow_duration_curve,
-            plot_seasonal_cycle_comparison,
-        )
-        import matplotlib.pyplot as plt
-
-        pareto_chars = np.asarray(result["pareto_drought_chars"])
-        hist_point = (float(hist_chars["mean_duration"]),
-                      float(hist_chars["mean_avg_severity"]))
-        fig_a = plot_scatter_with_marginals(
-            pareto_chars, title=f"§6 Kirsch ({args.mode}) Pareto",
-            historical_point=hist_point, anti_ideal=anti_ideal,
-            objective_labels=("Mean duration (months)", "Mean avg. severity"),
-        )
-        fig_a.savefig(PROJECT_ROOT / "figures" / f"fig05_kirsch_{args.mode}.pdf",
-                      dpi=300)
-        plt.close(fig_a)
-
-        synth_traces = [np.asarray(t) for t in result.get("synthetic_traces", [])]
-        if synth_traces:
-            fig_b, _ = plot_autocorrelation_comparison(
-                synth_traces, monthly_1d.flatten(), max_lag=24,
+        try:
+            from src.plotting.drought_space import plot_scatter_with_marginals
+            from src.plotting.trace_diagnostics import (
+                plot_autocorrelation_comparison,
+                plot_flow_duration_curve,
+                plot_seasonal_cycle_comparison,
             )
-            fig_b.savefig(PROJECT_ROOT / "figures" / f"fig06a_acf_{args.mode}.pdf",
-                          dpi=300)
-            plt.close(fig_b)
-            fig_c, _ = plot_flow_duration_curve(synth_traces, monthly_1d.flatten())
-            fig_c.savefig(PROJECT_ROOT / "figures" / f"fig06b_fdc_{args.mode}.pdf",
-                          dpi=300)
-            plt.close(fig_c)
-            synth_2d = [t.reshape(-1, 12) for t in synth_traces
-                        if t.size % 12 == 0]
-            if synth_2d:
-                fig_d, _ = plot_seasonal_cycle_comparison(synth_2d, monthly_2d)
-                fig_d.savefig(PROJECT_ROOT / "figures"
-                              / f"fig06c_seasonal_{args.mode}.pdf", dpi=300)
-                plt.close(fig_d)
+            import matplotlib.pyplot as plt
+
+            fig_dir = PROJECT_ROOT / "figures"
+            fig_dir.mkdir(parents=True, exist_ok=True)
+
+            pareto_chars = result.get("pareto_chars", [])
+            if pareto_chars:
+                dm = np.array(result["drought_metrics"])
+                hist_point = (
+                    float(hist_chars["mean_duration"]),
+                    float(hist_chars["mean_avg_severity"]),
+                )
+                fig_a = plot_scatter_with_marginals(
+                    dm,
+                    title=f"Kirsch ({args.mode}) Pareto",
+                    historical_point=hist_point,
+                    anti_ideal=anti_ideal,
+                    objective_labels=(
+                        "Mean duration (months)",
+                        "Mean avg. severity",
+                    ),
+                )
+                tag = "constrained" if constrained else "unconstrained"
+                fig_a.savefig(
+                    fig_dir / f"fig05_kirsch_{args.mode}_{tag}.pdf", dpi=300,
+                )
+                plt.close(fig_a)
+                print(f"[04] wrote fig05_kirsch_{args.mode}_{tag}.pdf")
+
+        except ImportError as exc:
+            print(f"[04] skipping plots (import error: {exc})")
 
 
 if __name__ == "__main__":

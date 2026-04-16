@@ -38,11 +38,11 @@ How does coverage quality (uniformity, extent, epsilon-box filling) scale as the
 *Key references:* Deb and Jain (2014) NSGA-III reference-point coverage as comparison (different mechanism); Zhang and Li (2007) MOEA/D decomposition as comparison.
 
 **RQ3: Physical Plausibility**
-Can the block bootstrap formulation, coupled with lightweight plausibility constraints, produce traces that are statistically indistinguishable from historical records in non-drought properties (autocorrelation, seasonal cycle, spatial correlation)?
+Can the Kirsch modified fractional Gaussian noise formulation, coupled with lightweight plausibility constraints, produce traces that are statistically indistinguishable from historical records in non-drought properties (autocorrelation, seasonal cycle, spatial correlation)?
 
-*How to evaluate:* Compare lag-1 autocorrelation, seasonal means, Hurst coefficient, and cross-site correlation matrices between generated and historical traces. The Kirsch block bootstrap (Kirsch et al. 2013) with shared indices and Cholesky decomposition inherently preserves much of this structure.
+*How to evaluate:* Compare lag-1 autocorrelation, seasonal means, Hurst coefficient, and cross-site correlation matrices between generated and historical traces. The Kirsch modified fractional Gaussian noise (Kirsch et al. 2013) with shared bootstrap indices and Cholesky decomposition inherently preserves much of this structure.
 
-*Key references:* Kirsch et al. (2013) for bootstrap plausibility; Wheeler et al. (2025) for Hurst coefficient and cross-correlation preservation; HHJ and NPPI methods for block size selection affecting plausibility.
+*Key references:* Kirsch et al. (2013) for bootstrap plausibility and Cholesky correlation restoration; Wheeler et al. (2025) for Hurst coefficient and cross-correlation preservation; HHJ and NPPI methods for block size selection affecting plausibility.
 
 ## Secondary (Method Design)
 

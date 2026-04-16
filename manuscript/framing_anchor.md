@@ -519,4 +519,80 @@ exactly in the Introduction to signal fluency with this literature:
 
 ---
 
-*Document prepared 2026-04-15. No Introduction text drafted. Existing manuscript files not modified.*
+## 7. Nested Psi/s Framing (Hadjimichael 2020, McPhail 2018)
+
+**Context (2026-04-15):** Research session 14 surfaced the critical importance of the nested-loop outer/inner structure for positioning MOEA-FIND within the broader robustness and uncertainty quantification literature. The following notation and concepts anchor this positioning.
+
+### Notation: Outer SOW Factors (Psi) and Inner Stochastic Realisations (s)
+
+Hadjimichael et al. (2020) "Defining Robustness, Vulnerabilities, and Consequential Scenarios for Diverse Stakeholder Interests in Institutionally Complex River Basins" introduces the two-loop structure formally. McPhail et al. (2018) "Robustness Planning with a New Scenario Discovery Framework" establishes the notation convention:
+
+- Psi = {psi_1, psi_2, ..., psi_n}: the set of deeply uncertain outer factors defining states of the world
+- psi_i: a single outer sample (e.g., a climate scenario, a demand pathway, a policy parameter perturbation)
+- G(psi_i): a stochastic generator conditional on outer state psi_i (e.g., Kirsch-Nowak with fixed parameters)
+- s_{i,j} ~ G(psi_i): the j-th inner realisation from generator G, conditional on outer state psi_i
+- a: a decision alternative (e.g., a reservoir operating policy)
+- y = f(a, s): system performance (outcome) evaluated on decision a under realisation s
+- R(a) = Phi({y}): robustness of decision a, aggregated from the distribution of outcomes
+
+**Critical framing insight:** The stochastic generator G is not itself a SOW paradigm. Instead, it is the INNER layer of a two-loop structure. The OUTER loop samples Psi (broadly, the paradigm landscape); the INNER loop draws realisations from G conditioned on the outer sample. Scenario generation methods differ in how they structure both loops.
+
+### Four Outer-Loop Paradigms (Revised Taxonomy, Session 14)
+
+The SOW specification taxonomy is **four paradigms**, not three:
+
+**(i) Historic / Storyline / Single-Trace Paleo Paradigm**
+- The outer loop selects a single observed or reconstructed trace (e.g., the Dust Bowl drought of record, a paleo reconstruction)
+- The trace IS the state of the world. No inner stochastic generator
+- Example: "Stress-test the policy against the historical 1930s drought."
+- Hadjimichael 2020: not explicitly a dual-loop structure because there is no inner generator
+
+**(ii) Expert-Curated Pre-Specified Scenarios (IPCC SSP/RCP style)**
+- The outer loop samples a small discrete set of expert-defined scenarios (e.g., SSP2-4.5, SSP5-8.5)
+- OPTIONAL: for each outer scenario, an inner stochastic generator G(psi_i) produces multiple realisations
+- Example (without inner generator): "Evaluate policies under four IPCC emissions scenarios"
+- Example (with inner generator): "For each IPCC scenario, generate 200 synthetic streamflows conditional on that scenario's temperature/precipitation changes"
+- Hadjimichael 2020: naturally dual-loop when inner generator is present
+
+**(iii) Parameter-Space Space-Filling Sampling (LHS, Sobol, Monte Carlo)**
+- The outer loop is a global exploratory sample of deeply uncertain factors using space-filling designs (Latin hypercube, Sobol, random)
+- The factors sampled are typically generator hyperparameters, climate change perturbations, or demand growthpaths
+- For each outer sample psi_i, an inner stochastic generator G(psi_i) (often a fixed generator with random seed variation) produces realisations
+- Example: "LHS over 15 climate perturbation factors, generating 10 traces per climate sample"
+- This is the DOMINANT paradigm in water resources (Hadjimichael 2020a, Quinn et al. 2018)
+- Hadjimichael 2020: explicitly dual-loop with outer LHS and inner G (either fixed generator with random replication, or the same generator with perturbed parameters)
+
+**(iv) Directed Hazard-Space Targeting (Borgomeo 2015, Zaniolo 2024, Wheeler 2025, MOEA-FIND)**
+- The outer loop is a DIRECTED search in hazard outcome space, not a sample of upstream uncertain factors
+- Each optimizer run targets a specific drought characteristic combination and produces one synthetic trace per run (Borgomeo, Zaniolo, Wheeler)
+- OR: a single MOEA run covers the entire feasible hazard region (MOEA-FIND)
+- There is no inner stochastic loop in the traditional sense (Borgomeo, Zaniolo, Wheeler). Each run produces one trace.
+- MOEA-FIND reformulates: it is compatible with an inner stochastic structure (multiple replicates conditional on outer drought characteristic targets), but the main paper demonstrates the single-run coverage version
+- The hazard space is emergent from parameter/SOW space, not a separate independent axis. Different outer SOW choices may produce overlapping hazard regions
+- Hadjimichael 2020: not addressed (the paper was published before Zaniolo FIND and Wheeler 2025)
+
+### Why This Taxonomy Matters for MOEA-FIND Positioning
+
+1. **MOEA-FIND is an INNER-loop method** when framed in the Hadjimichael 2020 structure. It reformulates how the inner stochastic generator produces realisations conditional on a fixed outer psi, by imposing structure directly in the hazard outcome coordinates rather than leaving hazard coverage to emerge implicitly.
+
+2. **MOEA-FIND is compatible with any outer-loop paradigm**. The paper demonstrates a single-psi application (Cannonsville, with psi = fixed Kirsch parameters + fixed historical record). Follow-up work can nest MOEA-FIND as the inner loop inside an outer loop that samples Psi (paradigm iii or iv), producing hazard coverage conditional on each outer SOW.
+
+3. **The closest precedent is Bonham et al. (2024)**, but Bonham operates in input uncertainty space (outer-loop paradigm iii: LHS over demand and storage perturbations), not in hazard outcome space. MOEA-FIND's novel contribution is targeting the inner-loop realisation space directly in hazard coordinates.
+
+4. **Notation for Introduction text:** Use psi and s explicitly in paragraphs that describe the nested-loop structure. The introduction should establish that standard outer-loop sampling (paradigm iii: LHS over upstream factors) produces non-uniform coverage in hazard space when s_{i,j} ~ G(psi_i) is forward-propagated. MOEA-FIND reverses this relationship by defining target coverage in hazard space and searching the psi (or s directly, conditional on fixed psi) space to achieve it.
+
+### Reference Anchors for Nested-Loop Positioning
+
+**Hadjimichael et al. (2020) key passages:**
+- Section 2.1 "Defining Robustness" formalizes the nested loop structure with notation close to Psi/s
+- Section 4 "Stakeholder-Contingent Robustness" discusses how different aggregations R(a) = Phi({y}) across the s_{i,j} ensemble can lead to different vulnerability conclusions
+
+**McPhail et al. (2018) key passages:**
+- Section 2 "The Scenario Framework" introduces Psi and s notation explicitly
+- Section 3 "Deep Uncertainty vs. Well-Characterized Natural Variability" distinguishes outer (deep) vs. inner (variability) loops
+
+**Usage rule:** When the manuscript describes the dominant parameter-space sampling paradigm in the Introduction, cite Hadjimichael et al. (2020) for the outer/inner formalisation and McPhail et al. (2018) for the Psi/s notation. Do not use Psi/s in highly technical sections (Methods); reserve it for conceptual framing in Introduction and Discussion.
+
+---
+
+*Document prepared 2026-04-15. Section 7 (Nested Psi/s framing) added 2026-04-15 after Session 14.*

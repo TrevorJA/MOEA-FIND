@@ -2,11 +2,17 @@
 
 Provides common data loading, SSI computation, MOEA execution, and plotting
 functions used by both proof-of-concept and kirsch_ensemble experiment scripts.
+
+The ``run_experiment`` function is the primary entry point. It:
+  1. Builds an evaluate callback that maps DVs -> (objectives, constraints).
+  2. Delegates to :func:`src.borg_runner.run_optimization` for algorithm dispatch
+     (MM Borg, serial Borg, or EpsNSGAII dev fallback).
+  3. Post-processes the result into a JSON-serialisable dict.
 """
 
 import time
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -19,7 +25,13 @@ from src.objectives import (
     flows_to_series,
 )
 from src.analysis import coverage_metrics
+from src.borg_runner import run_optimization, OptimizationResult
+from src.constraints import ConstraintConfig, ConstraintResult, compute_all_constraints
 
+
+# ---------------------------------------------------------------------------
+# Data loading helpers (unchanged)
+# ---------------------------------------------------------------------------
 
 def prepare_data(cache_dir: Path) -> Tuple[np.ndarray, np.ndarray]:
     """Load historical USGS data and return (monthly_2d, monthly_1d).
@@ -107,6 +119,33 @@ def compute_ssi_anti_ideal(
     return np.array(anti_ideal)
 
 
+# ---------------------------------------------------------------------------
+# Epsilon defaults
+# ---------------------------------------------------------------------------
+
+EPSILON_MAP = {
+    "mean_duration": 0.5,
+    "mean_magnitude": 0.5,
+    "mean_severity": 0.1,
+    "mean_avg_severity": 0.1,
+    "max_duration": 1.0,
+    "max_magnitude": 1.0,
+    "worst_severity": 0.1,
+    "frequency": 0.5,
+}
+
+
+def build_epsilons(objective_keys: tuple) -> list:
+    """Return epsilon list for objectives + Manhattan norm."""
+    eps = [EPSILON_MAP.get(k, 0.5) for k in objective_keys]
+    eps.append(sum(eps))  # Manhattan norm epsilon
+    return eps
+
+
+# ---------------------------------------------------------------------------
+# Core experiment runner
+# ---------------------------------------------------------------------------
+
 def run_experiment(
     monthly_2d: np.ndarray,
     monthly_1d: np.ndarray,
@@ -118,8 +157,17 @@ def run_experiment(
     n_years_out: int,
     nfe: int,
     seed: int,
+    algorithm: str = "eps_nsga2",
+    constraint_cfg: Optional[ConstraintConfig] = None,
+    output_dir: Optional[Path] = None,
+    **algo_kwargs,
 ) -> dict:
-    """Run a single MOEA experiment with SSI objectives.
+    """Run a single MOEA experiment with SSI objectives and plausibility constraints.
+
+    This is the main entry point for all Kirsch-based MOEA-FIND experiments.
+    It builds an evaluation callback that maps decision variables to
+    (objectives, constraints), delegates to :func:`borg_runner.run_optimization`,
+    then post-processes into a serialisable result dict.
 
     Args:
         monthly_2d: Historical flows (n_years, 12).
@@ -132,129 +180,154 @@ def run_experiment(
         n_years_out: Synthetic trace length in years.
         nfe: Number of function evaluations.
         seed: Random seed.
+        algorithm: Backend name (``"borg_mm"``, ``"borg_serial"``,
+            ``"eps_nsga2"``). Overridden by ``MOEA_FIND_ALGORITHM`` env var.
+        constraint_cfg: Optional :class:`ConstraintConfig`. If None,
+            constraints are disabled (unconstrained run).
+        output_dir: Directory for algorithm runtime/checkpoint files.
+            Defaults to a temp directory.
+        **algo_kwargs: Forwarded to the backend (e.g. ``n_islands``).
 
     Returns:
-        Results dict with Pareto front, hyperplane check, ranges, coverage metrics.
+        Results dict with Pareto front, hyperplane check, ranges,
+        coverage metrics, and constraint diagnostics.
     """
-    from platypus import EpsNSGAII, Problem, Real
-
     np.random.seed(seed)
 
-    # KirschBorgWrapper has n_dvs as a property
     n_dvs = generator.n_dvs
     n_objs = len(objective_keys) + 1  # +1 for Manhattan norm
+    n_constrs = 0
     eval_count = [0]
+    infeasible_count = [0]
 
     # Pre-fit SSI calculator on historical data
     prefitted_ssi = make_ssi_calculator(timescale=timescale)
     hist_series = flows_to_series(monthly_1d, start_date="1950-10-01")
     prefitted_ssi.fit(hist_series)
 
-    def evaluate(variables):
-        """Objective function for Borg/EpsNSGAII.
+    # Determine number of hard constraints
+    if constraint_cfg is not None:
+        enabled = constraint_cfg.enabled
+        n_constrs = sum(1 for v in enabled.values() if v)
 
-        Takes decision variables, generates synthetic flows, computes SSI and
-        drought metrics, returns objectives (metrics + Manhattan norm).
+    epsilons = build_epsilons(objective_keys)
+
+    if output_dir is None:
+        import tempfile
+        output_dir = Path(tempfile.mkdtemp(prefix="moea_find_"))
+
+    def evaluate(dvs: np.ndarray):
+        """Callback: DVs -> (objectives, constraints).
+
+        Returns objectives with soft penalty folded into Manhattan norm,
+        and hard constraints in Borg's <= 0 convention.
         """
         eval_count[0] += 1
-        dvs = np.array([float(v) for v in variables])
-
-        # Generate synthetic flows via KirschBorgWrapper
         synthetic_2d = generator.generate(dvs)
-
-        # Ensure 2D shape (n_years_out, 12)
         if synthetic_2d.ndim == 1:
             synthetic_2d = synthetic_2d.reshape(n_years_out, 12)
+        synthetic_1d = synthetic_2d.flatten()
 
-        # Transform to SSI using pre-fitted calculator
-        syn_series = flows_to_series(
-            synthetic_2d.flatten(), start_date="2100-01-01",
-        )
+        # SSI -> drought characteristics -> objectives
+        syn_series = flows_to_series(synthetic_1d, start_date="2100-01-01")
         ssi_syn = prefitted_ssi.transform(syn_series)
         chars = compute_ssi_drought_characteristics(ssi_syn)
+        objs = list(drought_objectives(chars, anti_ideal, objective_keys))
 
-        # Return objectives: metrics + Manhattan norm
-        return list(drought_objectives(chars, anti_ideal, objective_keys))
+        # Constraints
+        hard_violations = []
+        if constraint_cfg is not None:
+            cr = compute_all_constraints(
+                synthetic_1d, synthetic_2d, constraint_cfg,
+                ssi_calc=prefitted_ssi,
+            )
+            hard_violations = cr.hard_violations
+            if not cr.feasible:
+                infeasible_count[0] += 1
+            # Fold soft penalty into Manhattan norm (last objective)
+            objs[-1] += cr.soft_penalty_weighted
 
-    # Set up Borg problem
-    problem = Problem(n_dvs, n_objs)
-    for i in range(n_dvs):
-        problem.types[i] = Real(0.0, 1.0)
-    problem.function = evaluate
+        return objs, hard_violations
 
-    # Epsilon values (grid spacing for Borg's epsilon-dominance)
-    eps_map = {
-        "mean_duration": 0.5,
-        "mean_magnitude": 0.5,
-        "mean_severity": 0.1,
-        "mean_avg_severity": 0.1,
-        "max_duration": 1.0,
-        "max_magnitude": 1.0,
-        "worst_severity": 0.1,
-        "frequency": 0.5,
-    }
-    epsilons = [eps_map.get(k, 0.5) for k in objective_keys]
-    eps_manhattan = sum(epsilons)
-    epsilons.append(eps_manhattan)
+    # --- Run optimisation ---
+    print(f"  Running {algorithm} ({generator_name}): "
+          f"{n_dvs} DVs, {n_objs} obj, {n_constrs} constr, {nfe} NFE ...")
 
-    # Run EpsNSGAII
-    algorithm = EpsNSGAII(problem, epsilons=epsilons)
+    opt_result: OptimizationResult = run_optimization(
+        algorithm=algorithm,
+        evaluate=evaluate,
+        n_dvs=n_dvs,
+        n_objs=n_objs,
+        n_constrs=n_constrs,
+        epsilons=epsilons,
+        nfe=nfe,
+        seed=seed,
+        output_dir=output_dir,
+        **algo_kwargs,
+    )
 
-    print(f"  Running EpsNSGAII ({generator_name}): "
-          f"{n_dvs} DVs, {n_objs} obj, {nfe} NFE...")
-    t0 = time.time()
-    algorithm.run(nfe)
-    elapsed = time.time() - t0
-    print(f"  Done in {elapsed:.1f}s "
-          f"({eval_count[0]} evals, {elapsed/max(eval_count[0],1)*1000:.1f} ms/eval)")
+    elapsed = opt_result.elapsed_s
+    print(f"  Done in {elapsed:.1f}s ({eval_count[0]} evals, "
+          f"{elapsed / max(eval_count[0], 1) * 1000:.1f} ms/eval)")
+    if constraint_cfg is not None:
+        print(f"  Infeasible evals: {infeasible_count[0]} / {eval_count[0]} "
+              f"({100 * infeasible_count[0] / max(eval_count[0], 1):.1f}%)")
 
-    # Extract results
-    pareto_objs = np.array([list(s.objectives) for s in algorithm.result])
-    pareto_dvs = np.array([
-        [float(v) for v in s.variables] for s in algorithm.result
-    ])
-    print(f"  Pareto solutions: {len(pareto_objs)}")
+    # --- Post-process ---
+    pareto_objs = opt_result.pareto_objs
+    pareto_dvs = opt_result.pareto_dvs
+    n_pareto = len(pareto_objs)
+    print(f"  Pareto solutions: {n_pareto}")
 
-    if len(pareto_objs) == 0:
+    if n_pareto == 0:
         return {"n_pareto": 0, "mode": generator_name, "error": "No solutions"}
 
     drought_metrics = pareto_objs[:, :len(objective_keys)]
 
-    # Hyperplane check (Manhattan norm trick should force solutions to hyperplane)
+    # Hyperplane check
     obj_sums = np.sum(pareto_objs, axis=1)
     expected_sum = np.sum(anti_ideal)
     print(f"  Hyperplane: expected={expected_sum:.2f}, "
           f"mean={np.mean(obj_sums):.4f}, std={np.std(obj_sums):.6f}")
 
-    # Objective ranges
     for j, key in enumerate(objective_keys):
         print(f"  {key}: [{drought_metrics[:, j].min():.2f}, "
               f"{drought_metrics[:, j].max():.2f}]")
 
-    # Coverage metrics in normalized space
     lb = np.zeros(len(objective_keys))
     ub = anti_ideal.copy()
     dm = coverage_metrics(drought_metrics, lb, ub)
 
-    # Regenerate Pareto traces for full characteristics (for diagnostics)
+    # Regenerate Pareto traces for diagnostics
     pareto_chars = []
-    for dvs in pareto_dvs:
-        syn_2d = generator.generate(dvs)
+    pareto_constraint_diags = []
+    for dvs_row in pareto_dvs:
+        syn_2d = generator.generate(dvs_row)
         if syn_2d.ndim == 1:
             syn_2d = syn_2d.reshape(n_years_out, 12)
-        syn_s = flows_to_series(syn_2d.flatten(), start_date="2100-01-01")
+        syn_1d = syn_2d.flatten()
+        syn_s = flows_to_series(syn_1d, start_date="2100-01-01")
         ssi_re = prefitted_ssi.transform(syn_s)
         chars = compute_ssi_drought_characteristics(ssi_re)
         pareto_chars.append(chars)
 
-    return {
+        if constraint_cfg is not None:
+            cr = compute_all_constraints(
+                syn_1d, syn_2d, constraint_cfg, ssi_calc=prefitted_ssi
+            )
+            pareto_constraint_diags.append(cr.to_dict())
+
+    result = {
         "mode": generator_name,
+        "algorithm": opt_result.algorithm,
         "ssi_timescale": timescale,
         "n_dvs": n_dvs,
         "n_years_out": n_years_out,
         "nfe": nfe,
         "elapsed_s": elapsed,
-        "n_pareto": len(pareto_objs),
+        "n_pareto": n_pareto,
+        "n_evals_total": eval_count[0],
+        "n_infeasible": infeasible_count[0],
         "anti_ideal": anti_ideal.tolist(),
         "epsilons": epsilons,
         "objective_keys": list(objective_keys),
@@ -274,7 +347,16 @@ def run_experiment(
         "drought_metrics": drought_metrics.tolist(),
         "pareto_chars": pareto_chars,
     }
+    if constraint_cfg is not None:
+        result["constraint_config"] = constraint_cfg.to_dict()
+        result["constraint_diagnostics"] = pareto_constraint_diags
 
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Plotting (unchanged from previous version)
+# ---------------------------------------------------------------------------
 
 def plot_comparison(
     results_list: list,
