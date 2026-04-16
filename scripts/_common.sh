@@ -17,7 +17,7 @@ CLUSTER_ACCOUNT="${CLUSTER_ACCOUNT:-CHANGE_ME_ACCOUNT}"
 CLUSTER_PARTITION="${CLUSTER_PARTITION:-CHANGE_ME_PARTITION}"
 CLUSTER_PYTHON_MODULE="${CLUSTER_PYTHON_MODULE:-python/3.11}"
 CLUSTER_MPI_MODULE="${CLUSTER_MPI_MODULE:-openmpi/4.1.5}"
-CLUSTER_VENV="${CLUSTER_VENV:-${HOME}/.venvs/moea-find}"
+CLUSTER_VENV="${CLUSTER_VENV:-${PROJECT_ROOT}/venv}"
 
 # -----------------------------------------------------------------------------
 # Paths
@@ -52,7 +52,7 @@ moea_activate_venv() {
     else
         echo "[_common.sh] WARNING: venv not found at ${CLUSTER_VENV}" >&2
     fi
-    export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}"
+    export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/lib/borg:${PYTHONPATH:-}"
 }
 
 moea_setup() {
