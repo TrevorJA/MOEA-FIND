@@ -215,13 +215,18 @@ class KirschBorgWrapper:
         if hasattr(synthetic, "values"):
             synthetic = synthetic.values
 
-        # Return as 2D (n_years_out, 12) for single-site; caller may reshape for multisite
+        # Reshape to 2D (n_years_out, 12) for single-site
         if synthetic.ndim == 1:
             synthetic = synthetic.reshape(self.n_years_out, 12)
         elif synthetic.ndim == 2 and synthetic.shape[0] == self.n_years_out * 12:
-            # Flat format from KirschGenerator (all months x sites)
-            # For single-site, reshape to (n_years_out, 12)
             if self.n_sites == 1:
                 synthetic = synthetic.reshape(self.n_years_out, 12)
+
+        # SynHydro outputs calendar-year order (Jan=col 0, Dec=col 11).
+        # The rest of the pipeline uses water-year order (Oct=col 0, Sep=col 11)
+        # because prepare_data() aligns historical flows to Oct-Sep water years.
+        # Roll columns to convert: Jan(0)..Dec(11) → Oct(0)..Sep(11).
+        if synthetic.ndim == 2 and synthetic.shape[1] == 12:
+            synthetic = np.roll(synthetic, 3, axis=1)
 
         return synthetic

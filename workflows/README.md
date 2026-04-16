@@ -1,6 +1,23 @@
-# MOEA-FIND Experiment Scripts
+# MOEA-FIND Workflows
 
-All numerical experiments for the manuscript live in this directory. Each experiment is one numbered Python driver plus one matching SLURM batch script. Every entry below is pinned to a specific section and figure of the manuscript draft.
+All numerical experiments for the manuscript live in this directory, organized as:
+
+```
+workflows/
+  _common.sh              # shared SLURM/bash helpers (modules, venv, MPI launcher)
+  experiments/             # numbered Python experiment drivers
+    01_analytic_2d.py
+    ...
+  slurm/                   # matching SLURM batch scripts
+    01_analytic_2d.slurm
+    ...
+    slurm_logs/            # SLURM stdout/stderr logs (gitignored)
+  diagnostics/             # standalone diagnostic/calibration scripts
+    diag_constraint_calibration.py
+    ...
+```
+
+Each experiment is one numbered Python driver (in `experiments/`) plus one matching SLURM batch script (in `slurm/`). Every entry below is pinned to a specific section and figure of the manuscript draft.
 
 ## Manuscript mapping
 

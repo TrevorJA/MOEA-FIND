@@ -1,12 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=moea_04_kirsch_single_site
-#SBATCH --output=scripts/slurm_logs/%x_%j.out
-#SBATCH --error=scripts/slurm_logs/%x_%j.err
+#SBATCH --output=workflows/slurm/slurm_logs/%x_%j.out
+#SBATCH --error=workflows/slurm/slurm_logs/%x_%j.err
 #SBATCH --time=08:00:00
-#SBATCH --nodes=2
-#SBATCH --ntasks=64
-#SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=2G
+#SBATCH --nodes=3
+#SBATCH --ntasks-per-node=40
+#SBATCH --exclusive
 # Manuscript: §6.1-6.2 Single-Site Kirsch (Figures 5-6)
 # Experiment:  04 — single-site Kirsch MOEA-FIND with MM Borg
 # Parallelism: MPI master-worker (MM Borg); 1 master + (N-1) evaluators
@@ -17,8 +16,8 @@
 # Override variables in the sbatch command line:
 #   sbatch --export=ALL,BORG_NFE=200000,BORG_MODE=index scripts/04_kirsch_single_site.slurm
 
-# shellcheck source=./_common.sh
-source "$(dirname "$0")/_common.sh"
+# SLURM copies scripts to a spool dir; use SLURM_SUBMIT_DIR instead.
+source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
 : "${BORG_NFE:=500000}"
@@ -35,7 +34,9 @@ export OMP_NUM_THREADS=1
 # Path to calibration JSON produced by diag_constraint_calibration.slurm.
 CONSTRAINTS_JSON="${PROJECT_ROOT}/outputs/diag_constraint_calibration/calibrated_tolerances.json"
 
-moea_mpi_launch "${SLURM_NTASKS}" python scripts/04_kirsch_single_site.py \
+N_PROCESSORS=$(($SLURM_NNODES * $SLURM_NTASKS_PER_NODE))
+echo "[slurm] nodes=${SLURM_NNODES} tasks_per_node=${SLURM_NTASKS_PER_NODE} total=${N_PROCESSORS}"
+moea_mpi_launch "${N_PROCESSORS}" python workflows/experiments/04_kirsch_single_site.py \
     --nfe "${BORG_NFE}" \
     --mode "${BORG_MODE}" \
     --n-years "${N_YEARS}" \
@@ -48,8 +49,8 @@ moea_mpi_launch "${SLURM_NTASKS}" python scripts/04_kirsch_single_site.py \
     --plot
 
 # Package outputs to SCRATCH for safekeeping
-RESULTS_DIR="${PROJECT_ROOT}/outputs/exp04_kirsch_single_site/${BORG_MODE}"
+RESULTS_DIR="${PROJECT_ROOT}/outputs/exp04_kirsch_single_site"
 SCRATCH_DEST="${SCRATCH:-/tmp}/moea_find/exp04_${SLURM_JOB_ID}"
 mkdir -p "${SCRATCH_DEST}"
-cp -r "${RESULTS_DIR}" "${SCRATCH_DEST}/"
+cp -r "${RESULTS_DIR}" "${SCRATCH_DEST}/" 2>/dev/null || true
 echo "[slurm] packaged results to ${SCRATCH_DEST}"

@@ -51,7 +51,7 @@ from typing import Callable, Dict, List, Tuple
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.experiment_utils import prepare_data  # noqa: E402
@@ -124,7 +124,8 @@ def stat_non_drought_mean(
     series = flows_to_series(monthly_1d, start_date=start_date)
     ssi = ssi_calc.transform(series)
     ssi_arr = np.asarray(ssi.values, dtype=float)
-    flows_arr = np.asarray(series.values, dtype=float)
+    # Align flows to SSI output (SSI drops leading months for accumulation > 1)
+    flows_arr = np.asarray(series.loc[ssi.index].values, dtype=float)
     mask = np.isfinite(ssi_arr) & (ssi_arr > 0)
     if not mask.any():
         return float(np.nan)

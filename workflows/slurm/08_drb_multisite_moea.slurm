@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=moea_08_drb_multisite
-#SBATCH --output=scripts/slurm_logs/%x_%A_%a.out
-#SBATCH --error=scripts/slurm_logs/%x_%A_%a.err
+#SBATCH --output=workflows/slurm/slurm_logs/%x_%A_%a.out
+#SBATCH --error=workflows/slurm/slurm_logs/%x_%A_%a.err
 #SBATCH --time=24:00:00
 #SBATCH --nodes=4
 #SBATCH --ntasks=128
@@ -14,13 +14,13 @@
 # STATUS:      SCAFFOLDED; enable once multi-site Kirsch wrapper is merged.
 
 # shellcheck source=./_common.sh
-source "$(dirname "$0")/_common.sh"
+source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
 SEEDS=(42 17 91 5 13 31 77 109)
 SEED=${SEEDS[${SLURM_ARRAY_TASK_ID}]}
 
-moea_mpi_launch "${SLURM_NTASKS}" python scripts/08_drb_multisite_moea.py \
+moea_mpi_launch "${SLURM_NTASKS}" python workflows/experiments/08_drb_multisite_moea.py \
     --nfe 500000 \
     --n-years 30 \
     --seeds "${SEED}" \

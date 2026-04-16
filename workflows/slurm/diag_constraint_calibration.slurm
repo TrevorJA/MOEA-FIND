@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=moea_diag_constraint_calibration
-#SBATCH --output=scripts/slurm_logs/%x_%j.out
-#SBATCH --error=scripts/slurm_logs/%x_%j.err
+#SBATCH --output=workflows/slurm/slurm_logs/%x_%j.out
+#SBATCH --error=workflows/slurm/slurm_logs/%x_%j.err
 #SBATCH --time=00:30:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -16,7 +16,7 @@
 #   sbatch --export=ALL,T=20,N_BOOT=2000 scripts/diag_constraint_calibration.slurm
 
 # shellcheck source=./_common.sh
-source "$(dirname "$0")/_common.sh"
+source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
 : "${T:=20}"
@@ -26,7 +26,7 @@ moea_setup
 
 export OMP_NUM_THREADS=1
 
-python scripts/diag_constraint_calibration.py \
+python workflows/diagnostics/diag_constraint_calibration.py \
     --T "${T}" \
     --n-boot "${N_BOOT}" \
     --ssi-timescale "${SSI_TIMESCALE}" \

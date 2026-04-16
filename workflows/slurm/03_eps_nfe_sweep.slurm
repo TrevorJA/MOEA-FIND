@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=moea_03_eps_nfe_sweep
-#SBATCH --output=scripts/slurm_logs/%x_%A_%a.out
-#SBATCH --error=scripts/slurm_logs/%x_%A_%a.err
+#SBATCH --output=workflows/slurm/slurm_logs/%x_%A_%a.out
+#SBATCH --error=workflows/slurm/slurm_logs/%x_%A_%a.err
 #SBATCH --time=04:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -18,13 +18,13 @@
 # Usage:
 #     sbatch scripts/03_eps_nfe_sweep.slurm              # run the full array
 #     # then, after the array completes:
-#     python scripts/03_eps_nfe_sweep.py --mode aggregate
+#     python workflows/experiments/03_eps_nfe_sweep.py --mode aggregate
 
 # shellcheck source=./_common.sh
-source "$(dirname "$0")/_common.sh"
+source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-python scripts/03_eps_nfe_sweep.py \
+python workflows/experiments/03_eps_nfe_sweep.py \
     --mode cell \
     --task-id "${SLURM_ARRAY_TASK_ID}" \
     --metric-cap 0

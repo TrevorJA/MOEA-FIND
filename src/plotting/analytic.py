@@ -1,7 +1,7 @@
 """Analytic proof-of-concept figure building blocks.
 
 Each function here is a *reusable panel* targeted at a specific manuscript
-figure. Callers (scripts/01, scripts/02, scripts/03, scripts/10) compose
+figure. Callers (workflows/experiments/01, 02, 03, 10) compose
 them into final figures with layout conventions pinned to the manuscript
 display-item specification (single-column ~3.5 in, 1.5-column ~5.5 in,
 double-column ~7.0 in at WRR).

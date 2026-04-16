@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=moea_07_event_level_kirsch
-#SBATCH --output=scripts/slurm_logs/%x_%j.out
-#SBATCH --error=scripts/slurm_logs/%x_%j.err
+#SBATCH --output=workflows/slurm/slurm_logs/%x_%j.out
+#SBATCH --error=workflows/slurm/slurm_logs/%x_%j.err
 #SBATCH --time=04:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=32
@@ -13,10 +13,10 @@
 # STATUS:      SCAFFOLDED; enable once event-level helpers are merged.
 
 # shellcheck source=./_common.sh
-source "$(dirname "$0")/_common.sh"
+source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-moea_mpi_launch "${SLURM_NTASKS}" python scripts/07_event_level_kirsch.py \
+moea_mpi_launch "${SLURM_NTASKS}" python workflows/experiments/07_event_level_kirsch.py \
     --nfe 50000 \
     --n-years 8 \
     --ssi 3 \

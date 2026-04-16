@@ -35,7 +35,7 @@ from pathlib import Path
 
 import numpy as np
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.experiment_utils import (  # noqa: E402
@@ -43,6 +43,7 @@ from src.experiment_utils import (  # noqa: E402
     compute_historical_ssi_chars,
     compute_ssi_anti_ideal,
     run_experiment,
+    make_variant_slug,
 )
 from src.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
 from src.constraints import ConstraintConfig  # noqa: E402
@@ -115,8 +116,23 @@ def main():
                    default=PROJECT_ROOT / "outputs" / OUTPUT_SLUG)
     args = p.parse_args()
 
-    out = args.output_dir / args.mode
+    # --- Constraints (load early — needed for variant slug) ---
+    constraint_cfg = _load_constraints(
+        args.constraints_json, args.site_label, args.n_years,
+    )
+    constrained = constraint_cfg is not None
+
+    # --- Output directory keyed by variant slug ---
+    slug = make_variant_slug(
+        mode=args.mode,
+        n_years=args.n_years,
+        nfe=args.nfe,
+        seed=args.seed,
+        constrained=constrained,
+    )
+    out = args.output_dir / slug
     out.mkdir(parents=True, exist_ok=True)
+    print(f"[04] variant: {slug}")
 
     # --- Data ---
     cache_dir = PROJECT_ROOT / "outputs" / "data_cache"
@@ -140,15 +156,10 @@ def main():
         kirsch_gen, mode=args.mode, n_years_out=args.n_years,
     )
 
-    # --- Constraints ---
-    constraint_cfg = _load_constraints(
-        args.constraints_json, args.site_label, args.n_years,
-    )
-    constrained = constraint_cfg is not None
-
     # --- Config dump ---
     (out / "config.json").write_text(json.dumps({
         "script": "04_kirsch_single_site.py",
+        "variant": slug,
         "algorithm": args.algorithm,
         "nfe": args.nfe,
         "n_years": args.n_years,
@@ -192,18 +203,32 @@ def main():
     print(f"[04] Pareto: {result.get('n_pareto', 0)} solutions")
     print(f"     wrote {out / 'results.json'}")
 
-    # --- Plots ---
+    # Save pareto.npz for downstream scripts (e.g., 10_plot_manuscript_figures)
+    if result.get("n_pareto", 0) > 0:
+        np.savez(
+            out / "pareto.npz",
+            dvs=np.array(result["pareto_dvs"]),
+            objs=np.array(result["drought_metrics"]),
+        )
+        print(f"     wrote {out / 'pareto.npz'}")
+    else:
+        print(f"[04] WARNING: 0 Pareto solutions with {args.nfe} NFE "
+              f"and {generator.n_dvs} DVs. Skipping pareto.npz and plots.")
+
+    # --- Plots (saved to variant directory, not global figures/) ---
     if args.plot:
         try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
             from src.plotting.drought_space import plot_scatter_with_marginals
             from src.plotting.trace_diagnostics import (
                 plot_autocorrelation_comparison,
                 plot_flow_duration_curve,
                 plot_seasonal_cycle_comparison,
             )
-            import matplotlib.pyplot as plt
 
-            fig_dir = PROJECT_ROOT / "figures"
+            fig_dir = out / "figures"
             fig_dir.mkdir(parents=True, exist_ok=True)
 
             pareto_chars = result.get("pareto_chars", [])
@@ -223,12 +248,35 @@ def main():
                         "Mean avg. severity",
                     ),
                 )
-                tag = "constrained" if constrained else "unconstrained"
-                fig_a.savefig(
-                    fig_dir / f"fig05_kirsch_{args.mode}_{tag}.pdf", dpi=300,
-                )
+                fig_a.savefig(fig_dir / "fig05_drought_space.pdf", dpi=300)
                 plt.close(fig_a)
-                print(f"[04] wrote fig05_kirsch_{args.mode}_{tag}.pdf")
+                print(f"[04] wrote {fig_dir / 'fig05_drought_space.pdf'}")
+
+            pareto_traces_1d = result.get("pareto_traces_1d", [])
+            pareto_traces_2d = result.get("pareto_traces_2d", [])
+            if pareto_traces_1d:
+                traces_1d = [np.array(t) for t in pareto_traces_1d]
+                traces_2d = [np.array(t) for t in pareto_traces_2d]
+
+                fig_acf, _ = plot_autocorrelation_comparison(
+                    traces_1d, monthly_1d,
+                )
+                fig_acf.savefig(fig_dir / "fig06a_acf.pdf", dpi=300)
+                plt.close(fig_acf)
+
+                fig_fdc, _ = plot_flow_duration_curve(
+                    traces_1d, monthly_1d,
+                )
+                fig_fdc.savefig(fig_dir / "fig06b_fdc.pdf", dpi=300)
+                plt.close(fig_fdc)
+
+                fig_sc, _ = plot_seasonal_cycle_comparison(
+                    traces_2d, monthly_2d,
+                )
+                fig_sc.savefig(fig_dir / "fig06c_seasonal.pdf", dpi=300)
+                plt.close(fig_sc)
+
+                print(f"[04] wrote trace diagnostics to {fig_dir}")
 
         except ImportError as exc:
             print(f"[04] skipping plots (import error: {exc})")

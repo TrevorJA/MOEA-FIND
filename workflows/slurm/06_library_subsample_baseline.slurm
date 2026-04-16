@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=moea_06_library_subsample
-#SBATCH --output=scripts/slurm_logs/%x_%j.out
-#SBATCH --error=scripts/slurm_logs/%x_%j.err
+#SBATCH --output=workflows/slurm/slurm_logs/%x_%j.out
+#SBATCH --error=workflows/slurm/slurm_logs/%x_%j.err
 #SBATCH --time=00:30:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -12,13 +12,13 @@
 # Parallelism: serial (NumPy/SciPy vectorized)
 
 # shellcheck source=./_common.sh
-source "$(dirname "$0")/_common.sh"
+source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
 LIBRARY=${LIBRARY:-outputs/exp05_kirsch_library/characteristics.json}
 
 for method in lhs sobol random; do
-    python scripts/06_library_subsample_baseline.py \
+    python workflows/experiments/06_library_subsample_baseline.py \
         --library "${LIBRARY}" \
         --n-select 200 \
         --method "${method}" \

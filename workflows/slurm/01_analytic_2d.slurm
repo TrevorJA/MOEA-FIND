@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=moea_01_analytic_2d
-#SBATCH --output=scripts/slurm_logs/%x_%j.out
-#SBATCH --error=scripts/slurm_logs/%x_%j.err
+#SBATCH --output=workflows/slurm/slurm_logs/%x_%j.out
+#SBATCH --error=workflows/slurm/slurm_logs/%x_%j.err
 #SBATCH --time=00:20:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -12,10 +12,10 @@
 # Parallelism: serial
 
 # shellcheck source=./_common.sh
-source "$(dirname "$0")/_common.sh"
+source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-python scripts/01_analytic_2d.py \
+python workflows/experiments/01_analytic_2d.py \
     --nfe 100000 \
     --seed 42 \
     --plot

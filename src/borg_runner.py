@@ -104,16 +104,24 @@ def run_borg_mm(
         checkpoint_freq: NFE interval between checkpoint writes.
         old_checkpoint: Path to a checkpoint file to resume from.
     """
+    # borg.py loads ./libborg.so relative to CWD, so cd there for import.
+    _borg_dir = str(Path(__file__).resolve().parents[1] / "lib" / "borg")
+    _saved_cwd = os.getcwd()
+    os.chdir(_borg_dir)
     from borg import Borg, Configuration  # type: ignore[import-not-found]
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # MM Borg passes (vars_list, NFE) to the function.
-    def _mm_wrapper(vars_list, nfe_count):
-        dvs = np.array(vars_list, dtype=float)
+    # Standard borg.py unpacks DVs as positional args; return (objs, constrs) tuple.
+    def _mm_wrapper(*vars_args):
+        dvs = np.array(vars_args, dtype=float)
         objs, constrs = evaluate(dvs)
-        return list(objs) + list(constrs)
+        return (list(objs), list(constrs))
+
+    # startMPI() loads ./libborgmm.so from CWD, so stay in _borg_dir.
+    Configuration.startMPI()
+    os.chdir(_saved_cwd)
 
     borg = Borg(
         numberOfVariables=n_dvs,
@@ -125,20 +133,12 @@ def run_borg_mm(
         seed=seed,
     )
 
-    Configuration.startMPI()
     t0 = time.time()
-
-    solve_kwargs = dict(
+    result = borg.solveMPI(
         islands=n_islands,
         maxEvaluations=nfe,
-        runtime=str(output_dir / "runtime_%d.txt"),
         frequency=checkpoint_freq,
-        newCheckpointFileBase=str(output_dir / "checkpoint"),
     )
-    if old_checkpoint is not None:
-        solve_kwargs["oldCheckpointFile"] = str(old_checkpoint)
-
-    result = borg.solveMPI(**solve_kwargs)
     elapsed = time.time() - t0
     Configuration.stopMPI()
 
@@ -162,16 +162,20 @@ def run_borg_serial(
     No MPI required. Useful for local debugging with the Borg C library
     but without a cluster allocation.
     """
-    from borg import Borg  # type: ignore[import-not-found]
+    _borg_dir = str(Path(__file__).resolve().parents[1] / "lib" / "borg")
+    _saved_cwd = os.getcwd()
+    os.chdir(_borg_dir)
+    from borg import Borg, Configuration  # type: ignore[import-not-found]
+    os.chdir(_saved_cwd)
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Serial Borg passes *vars (unpacked) to the function.
+    # Standard borg.py unpacks DVs as positional args; return (objs, constrs) tuple.
     def _serial_wrapper(*vars_args):
         dvs = np.array(vars_args, dtype=float)
         objs, constrs = evaluate(dvs)
-        return list(objs) + list(constrs)
+        return (list(objs), list(constrs))
 
     borg = Borg(
         numberOfVariables=n_dvs,
@@ -210,7 +214,7 @@ def _parse_borg_result(
     algo_name: str,
 ) -> OptimizationResult:
     """Extract Pareto arrays from a Borg result object."""
-    if result is None or len(result) == 0:
+    if result is None or result.size() == 0:
         return OptimizationResult(
             pareto_dvs=np.empty((0, n_dvs)),
             pareto_objs=np.empty((0, n_objs)),
@@ -225,10 +229,9 @@ def _parse_borg_result(
     constrs_list = []
     for sol in result:
         dvs_list.append(sol.getVariables())
-        combined = sol.getObjectives()
-        objs_list.append(combined[:n_objs])
+        objs_list.append(sol.getObjectives())
         if n_constrs > 0:
-            constrs_list.append(combined[n_objs: n_objs + n_constrs])
+            constrs_list.append(sol.getConstraints())
         else:
             constrs_list.append([])
 

@@ -143,6 +143,49 @@ def build_epsilons(objective_keys: tuple) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Variant identification
+# ---------------------------------------------------------------------------
+
+def make_variant_slug(
+    mode: str,
+    n_years: int,
+    nfe: int,
+    seed: int,
+    constrained: bool,
+    *,
+    extra: Optional[dict] = None,
+) -> str:
+    """Build a deterministic, filesystem-safe variant identifier.
+
+    The slug encodes all parameters that distinguish experiment runs so that
+    each unique configuration gets its own output directory.
+
+    Args:
+        mode: DV injection mode (``"index"`` or ``"residual"``).
+        n_years: Synthetic trace length in years.
+        nfe: Maximum function evaluations.
+        seed: Random seed.
+        constrained: Whether plausibility constraints are active.
+        extra: Optional additional knobs, e.g. ``{"ssi": "6"}``.
+            Keys are sorted for determinism.
+
+    Returns:
+        Slug like ``"residual_T20_nfe500000_s42_constrained"``.
+    """
+    parts = [
+        mode,
+        f"T{n_years}",
+        f"nfe{nfe}",
+        f"s{seed}",
+        "constrained" if constrained else "unconstrained",
+    ]
+    if extra:
+        for k, v in sorted(extra.items()):
+            parts.append(f"{k}{v}")
+    return "_".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Core experiment runner
 # ---------------------------------------------------------------------------
 
@@ -280,7 +323,27 @@ def run_experiment(
     print(f"  Pareto solutions: {n_pareto}")
 
     if n_pareto == 0:
-        return {"n_pareto": 0, "mode": generator_name, "error": "No solutions"}
+        return {
+            "mode": generator_name,
+            "algorithm": opt_result.algorithm,
+            "ssi_timescale": timescale,
+            "n_dvs": n_dvs,
+            "n_years_out": n_years_out,
+            "nfe": nfe,
+            "elapsed_s": elapsed,
+            "n_pareto": 0,
+            "n_evals_total": eval_count[0],
+            "n_infeasible": infeasible_count[0],
+            "anti_ideal": anti_ideal.tolist(),
+            "epsilons": epsilons,
+            "objective_keys": list(objective_keys),
+            "drought_metrics": [],
+            "pareto_chars": [],
+            "pareto_dvs": [],
+            "pareto_traces_1d": [],
+            "pareto_traces_2d": [],
+            "error": "No Pareto-optimal solutions found",
+        }
 
     drought_metrics = pareto_objs[:, :len(objective_keys)]
 
@@ -298,14 +361,20 @@ def run_experiment(
     ub = anti_ideal.copy()
     dm = coverage_metrics(drought_metrics, lb, ub)
 
-    # Regenerate Pareto traces for diagnostics
+    # Regenerate Pareto traces for diagnostics and plotting
     pareto_chars = []
+    pareto_traces_1d = []
+    pareto_traces_2d = []
     pareto_constraint_diags = []
     for dvs_row in pareto_dvs:
         syn_2d = generator.generate(dvs_row)
         if syn_2d.ndim == 1:
             syn_2d = syn_2d.reshape(n_years_out, 12)
         syn_1d = syn_2d.flatten()
+
+        pareto_traces_1d.append(syn_1d.tolist())
+        pareto_traces_2d.append(syn_2d.tolist())
+
         syn_s = flows_to_series(syn_1d, start_date="2100-01-01")
         ssi_re = prefitted_ssi.transform(syn_s)
         chars = compute_ssi_drought_characteristics(ssi_re)
@@ -346,6 +415,9 @@ def run_experiment(
         "coverage": dm,
         "drought_metrics": drought_metrics.tolist(),
         "pareto_chars": pareto_chars,
+        "pareto_dvs": pareto_dvs.tolist(),
+        "pareto_traces_1d": pareto_traces_1d,
+        "pareto_traces_2d": pareto_traces_2d,
     }
     if constraint_cfg is not None:
         result["constraint_config"] = constraint_cfg.to_dict()

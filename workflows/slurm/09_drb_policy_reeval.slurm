@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=moea_09_drb_policy_reeval
-#SBATCH --output=scripts/slurm_logs/%x_%j.out
-#SBATCH --error=scripts/slurm_logs/%x_%j.err
+#SBATCH --output=workflows/slurm/slurm_logs/%x_%j.out
+#SBATCH --error=workflows/slurm/slurm_logs/%x_%j.err
 #SBATCH --time=12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -13,9 +13,9 @@
 # STATUS:      SCAFFOLDED; pending script 08 ensemble and NYCOptimization handoff.
 
 # shellcheck source=./_common.sh
-source "$(dirname "$0")/_common.sh"
+source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-python scripts/09_drb_policy_reeval.py \
+python workflows/experiments/09_drb_policy_reeval.py \
     --ensemble outputs/exp08_drb_multisite/ensemble.npz \
     --policies "${NYC_POLICIES_PATH:-../NYCOptimization/outputs/pareto_policies.json}"
