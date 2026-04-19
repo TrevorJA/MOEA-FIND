@@ -80,42 +80,63 @@ from src.analysis import (  # noqa: E402
 from src.objectives import analytic_objectives  # noqa: E402
 
 
-# Global problem constants. DV_LO, DV_HI, and DISK_RADIUS are kept fixed
-# across k so that results from different dimensionalities are directly
-# comparable; the bounding box side is 6, the k-ball radius is 2.5, and
-# the anti-ideal sits at the positive corner.
+# Global problem constants. DV_LO, DV_HI, and FEASIBLE_RADIUS are kept
+# fixed across k so that results from different dimensionalities are
+# directly comparable; the bounding box side is 6 and the feasible-region
+# half-width / radius is 2.5. The anti-ideal sits at the positive corner
+# of the bounding box, so it is outside both the ball (radius 2.5) and
+# the cube (half-width 2.5).
 DV_LO, DV_HI = -3.0, 3.0
-DISK_RADIUS = 2.5
+FEASIBLE_RADIUS = 2.5
+VALID_SHAPES = ("ball", "cube")
 OUTPUT_SLUG = "diag_shell_vs_interior"
 
 
-def _in_ball(x: np.ndarray, radius: float = DISK_RADIUS) -> np.ndarray:
-    """Boolean mask indicating which rows of x lie inside the k-ball."""
-    return (x ** 2).sum(axis=-1) <= radius ** 2
-
-
-def _reject_into_ball(
-    samples: np.ndarray,
-    radius: float = DISK_RADIUS,
+def _in_feasible(
+    x: np.ndarray,
+    shape: str = "cube",
+    radius: float = FEASIBLE_RADIUS,
 ) -> np.ndarray:
-    """Return only rows of samples that fall inside the k-ball."""
-    return samples[_in_ball(samples, radius)]
+    """Boolean mask indicating which rows of x lie inside the feasible set.
+
+    Args:
+        x: Array of shape (..., k).
+        shape: ``"ball"`` for ``sum(X_i^2) <= R^2`` or ``"cube"`` for
+            ``max(|X_i|) <= R`` (an L-inf ball centered at origin).
+        radius: Ball radius / cube half-width.
+    """
+    if shape == "ball":
+        return (x ** 2).sum(axis=-1) <= radius ** 2
+    if shape == "cube":
+        return np.max(np.abs(x), axis=-1) <= radius
+    raise ValueError(f"unknown feasible shape {shape!r} (choose from {VALID_SHAPES})")
 
 
-def _sample_in_ball(
+def _reject_into_feasible(
+    samples: np.ndarray,
+    shape: str = "cube",
+    radius: float = FEASIBLE_RADIUS,
+) -> np.ndarray:
+    """Return only rows of samples that fall inside the feasible set."""
+    return samples[_in_feasible(samples, shape, radius)]
+
+
+def _sample_in_feasible(
     n_target: int,
     method: str,
     seed: int,
     k: int,
-    radius: float = DISK_RADIUS,
+    shape: str = "cube",
+    radius: float = FEASIBLE_RADIUS,
     oversample: int = 20,
 ) -> np.ndarray:
-    """Draw n_target samples inside the k-ball by rejection.
+    """Draw n_target samples inside the feasible set by rejection.
 
     Uses method in {"uniform", "lhs", "sobol"}. The rejection rate is
-    (cube volume) / (ball volume), which grows quickly with k, so the
-    oversample factor is automatically increased if the first pass
-    falls short.
+    (bounding-box volume) / (feasible-set volume). For a ball this
+    grows quickly with k; for a cube it grows as ``((DV_HI - DV_LO) / (2R))^k``
+    (much milder). The oversample factor is bumped automatically if the
+    first pass falls short.
     """
     lb = np.full(k, DV_LO)
     ub = np.full(k, DV_HI)
@@ -131,10 +152,10 @@ def _sample_in_ball(
     else:
         raise ValueError(f"unknown method {method!r}")
 
-    accepted = _reject_into_ball(raw, radius)
+    accepted = _reject_into_feasible(raw, shape, radius)
     if len(accepted) < n_target:
-        return _sample_in_ball(
-            n_target, method, seed + 1, k, radius,
+        return _sample_in_feasible(
+            n_target, method, seed + 1, k, shape, radius,
             oversample=oversample * 4,
         )
     return accepted[:n_target]
@@ -150,13 +171,21 @@ def _distance_from_antiideal_l1(points: np.ndarray) -> np.ndarray:
     return np.abs(points - _anti_ideal(points.shape[1])).sum(axis=1)
 
 
-def _distance_from_ball_boundary(
+def _distance_from_boundary(
     points: np.ndarray,
-    radius: float = DISK_RADIUS,
+    shape: str = "cube",
+    radius: float = FEASIBLE_RADIUS,
 ) -> np.ndarray:
-    """Positive inside, zero on boundary, negative outside."""
-    r = np.linalg.norm(points, axis=1)
-    return radius - r
+    """Positive inside, zero on boundary, negative outside.
+
+    For the ball, uses the Euclidean distance from the surface; for the
+    cube, uses the L-infinity distance from the nearest face.
+    """
+    if shape == "ball":
+        return radius - np.linalg.norm(points, axis=1)
+    if shape == "cube":
+        return radius - np.max(np.abs(points), axis=1)
+    raise ValueError(f"unknown feasible shape {shape!r}")
 
 
 def _orthant_occupancy(points: np.ndarray) -> dict:
@@ -188,14 +217,18 @@ def _grid_occupancy(
     points: np.ndarray,
     k: int,
     n_bins: int,
-    radius: float = DISK_RADIUS,
+    shape: str = "cube",
+    radius: float = FEASIBLE_RADIUS,
 ) -> dict:
     """Feasible-cell occupancy on a coarse regular partition.
 
     The full grid has n_bins^k cells, of which only those whose center
-    lies inside the ball are counted as feasible. Occupancy is the
-    number of distinct feasible cells that contain at least one
-    sample point, divided by the number of feasible cells.
+    lies inside the feasible set are counted as feasible. Occupancy is
+    the number of distinct feasible cells that contain at least one
+    sample point, divided by the number of feasible cells. For a cube
+    feasibility every cell is feasible (the grid exactly tiles the
+    cube). For a ball a fraction of cells are outside the ball and are
+    excluded.
 
     For k >= 6 with n_bins = 5 this is 15,625 cells; with n_bins = 4
     it is 4,096. The function caps n_bins^k at 10^5 to bound memory.
@@ -209,17 +242,19 @@ def _grid_occupancy(
 
     mesh = np.meshgrid(*([centers] * k), indexing="ij")
     cells = np.stack([m.ravel() for m in mesh], axis=1)
-    feasible_mask = _in_ball(cells, radius)
+    feasible_mask = _in_feasible(cells, shape, radius)
     n_feasible = int(feasible_mask.sum())
 
-    in_ball_points = points[_in_ball(points, radius)] if len(points) else points
-    if len(in_ball_points) == 0:
+    in_feasible_points = (
+        points[_in_feasible(points, shape, radius)] if len(points) else points
+    )
+    if len(in_feasible_points) == 0:
         return {"occupied": 0, "feasible": n_feasible, "fraction": 0.0, "n_bins": n_bins}
 
     ix = np.clip(
-        np.digitize(in_ball_points, edges) - 1, 0, n_bins - 1,
+        np.digitize(in_feasible_points, edges) - 1, 0, n_bins - 1,
     )  # shape (n, k)
-    flat = np.zeros(len(in_ball_points), dtype=int)
+    flat = np.zeros(len(in_feasible_points), dtype=int)
     for j in range(k):
         flat = flat * n_bins + ix[:, j]
 
@@ -235,27 +270,41 @@ def _grid_occupancy(
     }
 
 
-def _interior_fraction(points: np.ndarray, interior_eps: float) -> float:
+def _interior_fraction(
+    points: np.ndarray,
+    interior_eps: float,
+    shape: str = "cube",
+    radius: float = FEASIBLE_RADIUS,
+) -> float:
     if len(points) == 0:
         return 0.0
-    in_ball = points[_in_ball(points)]
-    if len(in_ball) == 0:
+    inside = points[_in_feasible(points, shape, radius)]
+    if len(inside) == 0:
         return 0.0
-    return float((_distance_from_ball_boundary(in_ball) > interior_eps).mean())
+    return float((_distance_from_boundary(inside, shape, radius) > interior_eps).mean())
 
 
-def run_borg(k: int, nfe: int, seed: int, epsilon: float) -> np.ndarray:
-    """Run EpsNSGAII on the k-dimensional constrained analytic problem."""
+def run_borg(
+    k: int,
+    nfe: int,
+    seed: int,
+    epsilon: float,
+    shape: str = "cube",
+    radius: float = FEASIBLE_RADIUS,
+) -> np.ndarray:
+    """Run EpsNSGAII on the k-dim constrained analytic problem.
+
+    Penalty strictly dominates every feasible objective vector: feasible
+    ``J_i in [-R, R]`` and ``J_{k+1} in [0, 2k*DV_HI]``, so penalty at
+    ``[10, ..., 10, 30k]`` is always worse.
+    """
     np.random.seed(seed)
     anti_ideal = _anti_ideal(k)
-    # Penalty strictly dominates every feasible objective vector. Feasible
-    # bounds: J_i in [-R, R] = [-2.5, 2.5], J_{k+1} in [0, 2k*DV_HI] bounded
-    # above by 2k*3 = 6k. Penalty at 10 and 30k always strictly worse.
     penalty = np.array([10.0] * k + [30.0 * k])
 
     def evaluate(variables):
         dvs = np.array([float(v) for v in variables])
-        if (dvs ** 2).sum() > DISK_RADIUS ** 2:
+        if not _in_feasible(dvs[None, :], shape, radius)[0]:
             return penalty.tolist()
         return analytic_objectives(dvs, anti_ideal).tolist()
 
@@ -269,19 +318,31 @@ def run_borg(k: int, nfe: int, seed: int, epsilon: float) -> np.ndarray:
     algo.run(nfe)
     elapsed = time.perf_counter() - t0
 
-    feasible_dvs = []
-    for s in algo.result:
-        dvs = np.array([float(v) for v in s.variables[:]])
-        if (dvs ** 2).sum() <= DISK_RADIUS ** 2:
-            feasible_dvs.append(dvs)
-    dvs = np.array(feasible_dvs) if feasible_dvs else np.zeros((0, k))
+    all_dvs = np.array([
+        [float(v) for v in s.variables[:]] for s in algo.result
+    ]) if len(algo.result) else np.zeros((0, k))
+    dvs = (
+        all_dvs[_in_feasible(all_dvs, shape, radius)]
+        if len(all_dvs) else all_dvs
+    )
 
     print(
-        f"  borg(k={k}): nfe={nfe} seed={seed} eps={epsilon} "
+        f"  borg(k={k}, shape={shape}): nfe={nfe} seed={seed} eps={epsilon} "
         f"archive={len(algo.result)} feasible={len(dvs)} "
         f"elapsed={elapsed:.1f}s"
     )
     return dvs
+
+
+def _boundary_2d(shape: str, radius: float) -> tuple:
+    """Closed (x, y) polyline tracing the feasibility boundary in 2D."""
+    if shape == "ball":
+        theta = np.linspace(0, 2 * np.pi, 200)
+        return radius * np.cos(theta), radius * np.sin(theta)
+    # cube: walk the four edges
+    x = np.array([-radius, radius, radius, -radius, -radius])
+    y = np.array([-radius, -radius, radius, radius, -radius])
+    return x, y
 
 
 def plot_low_d(
@@ -291,25 +352,28 @@ def plot_low_d(
     lhs: np.ndarray,
     sobol: np.ndarray,
     out_path: Path,
+    shape: str = "cube",
+    radius: float = FEASIBLE_RADIUS,
 ) -> None:
     """2x3 panel for k in {2, 3}: scatter row + metrics row."""
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
     fig = plt.figure(figsize=(12, 8))
+    shape_label = shape  # "ball" or "cube"
 
     if k == 2:
         axes_top = [fig.add_subplot(2, 3, i + 1) for i in range(3)]
-        theta = np.linspace(0, 2 * np.pi, 200)
-        cx = DISK_RADIUS * np.cos(theta)
-        cy = DISK_RADIUS * np.sin(theta)
+        bx, by = _boundary_2d(shape, radius)
         for ax, pts, color, name in zip(
             axes_top,
             [borg, lhs, sobol],
             ["tab:blue", "tab:orange", "tab:green"],
-            ["MOEA-FIND archive", "LHS in ball", "Sobol in ball"],
+            ["MOEA-FIND archive",
+             f"LHS in {shape_label}",
+             f"Sobol in {shape_label}"],
         ):
-            ax.plot(cx, cy, "k--", lw=1.0)
+            ax.plot(bx, by, "k--", lw=1.0)
             ax.scatter(*_anti_ideal(2), marker="X", color="red", s=60)
             ax.scatter(pts[:, 0], pts[:, 1], s=10, color=color)
             ax.set_xlim(-3.2, 3.5)
@@ -322,7 +386,9 @@ def plot_low_d(
         for i, (pts, color, name) in enumerate(zip(
             [borg, lhs, sobol],
             ["tab:blue", "tab:orange", "tab:green"],
-            ["MOEA-FIND archive", "LHS in ball", "Sobol in ball"],
+            ["MOEA-FIND archive",
+             f"LHS in {shape_label}",
+             f"Sobol in {shape_label}"],
         )):
             ax = fig.add_subplot(2, 3, i + 1, projection="3d")
             ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], s=6, color=color)
@@ -350,24 +416,27 @@ def plot_low_d(
     ax_d.legend(fontsize=8)
 
     ax_b = fig.add_subplot(2, 3, 5)
-    bins_b = np.linspace(0, DISK_RADIUS, 20)
-    b_borg = _distance_from_ball_boundary(borg[_in_ball(borg)])
-    b_lhs = _distance_from_ball_boundary(lhs[_in_ball(lhs)])
-    b_sobol = _distance_from_ball_boundary(sobol[_in_ball(sobol)])
+    bins_b = np.linspace(0, radius, 20)
+    b_borg = _distance_from_boundary(
+        borg[_in_feasible(borg, shape, radius)], shape, radius)
+    b_lhs = _distance_from_boundary(
+        lhs[_in_feasible(lhs, shape, radius)], shape, radius)
+    b_sobol = _distance_from_boundary(
+        sobol[_in_feasible(sobol, shape, radius)], shape, radius)
     ax_b.hist(b_borg, bins=bins_b, alpha=0.6, color="tab:blue", label="MOEA-FIND")
     ax_b.hist(b_lhs, bins=bins_b, alpha=0.4, color="tab:orange", label="LHS")
     ax_b.hist(b_sobol, bins=bins_b, alpha=0.4, color="tab:green", label="Sobol")
-    ax_b.set_xlabel("distance from ball boundary")
+    ax_b.set_xlabel(f"distance from {shape_label} boundary")
     ax_b.set_ylabel("count")
     ax_b.set_title("Interior versus shell mass")
     ax_b.legend(fontsize=8)
 
     ax_g = fig.add_subplot(2, 3, 6)
     occ = {
-        "MOEA-FIND": _grid_occupancy(borg, k, 12 if k <= 3 else 6),
-        "uniform": _grid_occupancy(unif, k, 12 if k <= 3 else 6),
-        "LHS": _grid_occupancy(lhs, k, 12 if k <= 3 else 6),
-        "Sobol": _grid_occupancy(sobol, k, 12 if k <= 3 else 6),
+        "MOEA-FIND": _grid_occupancy(borg, k, 12 if k <= 3 else 6, shape, radius),
+        "uniform":   _grid_occupancy(unif, k, 12 if k <= 3 else 6, shape, radius),
+        "LHS":       _grid_occupancy(lhs, k, 12 if k <= 3 else 6, shape, radius),
+        "Sobol":     _grid_occupancy(sobol, k, 12 if k <= 3 else 6, shape, radius),
     }
     labels = list(occ.keys())
     values = [occ[x]["fraction"] for x in labels]
@@ -381,7 +450,7 @@ def plot_low_d(
 
     fig.suptitle(
         f"Shell versus interior diagnostic, k={k} "
-        f"(ball radius {DISK_RADIUS}, anti-ideal at the corner)"
+        f"({shape_label} half-width {radius}, anti-ideal at the corner)"
     )
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -396,6 +465,8 @@ def plot_high_d(
     lhs: np.ndarray,
     sobol: np.ndarray,
     out_path: Path,
+    shape: str = "cube",
+    radius: float = FEASIBLE_RADIUS,
 ) -> None:
     """Metrics-only 1x4 panel for k >= 4, since no honest 4+D scatter exists."""
     import matplotlib.pyplot as plt
@@ -415,15 +486,18 @@ def plot_high_d(
     axes[0].set_title("Distance from anti-ideal")
     axes[0].legend(fontsize=8)
 
-    # Distance from ball boundary.
-    bins_b = np.linspace(0, DISK_RADIUS, 20)
-    b_borg = _distance_from_ball_boundary(borg[_in_ball(borg)])
-    b_lhs = _distance_from_ball_boundary(lhs[_in_ball(lhs)])
-    b_sobol = _distance_from_ball_boundary(sobol[_in_ball(sobol)])
+    # Distance from feasibility boundary.
+    bins_b = np.linspace(0, radius, 20)
+    b_borg = _distance_from_boundary(
+        borg[_in_feasible(borg, shape, radius)], shape, radius)
+    b_lhs = _distance_from_boundary(
+        lhs[_in_feasible(lhs, shape, radius)], shape, radius)
+    b_sobol = _distance_from_boundary(
+        sobol[_in_feasible(sobol, shape, radius)], shape, radius)
     axes[1].hist(b_borg, bins=bins_b, alpha=0.6, color="tab:blue", label="MOEA-FIND")
     axes[1].hist(b_lhs, bins=bins_b, alpha=0.4, color="tab:orange", label="LHS")
     axes[1].hist(b_sobol, bins=bins_b, alpha=0.4, color="tab:green", label="Sobol")
-    axes[1].set_xlabel("distance from ball boundary")
+    axes[1].set_xlabel(f"distance from {shape} boundary")
     axes[1].set_ylabel("count")
     axes[1].set_title("Interior versus shell mass")
     axes[1].legend(fontsize=8)
@@ -445,13 +519,13 @@ def plot_high_d(
     for i, v in enumerate(values):
         axes[2].text(i, v + 0.02, f"{v:.2f}", ha="center", fontsize=9)
 
-    # Grid cell occupancy on a courser partition.
+    # Grid cell occupancy on a coarser partition.
     n_bins = 6 if k <= 4 else 4
     occ = {
-        "MOEA-FIND": _grid_occupancy(borg, k, n_bins),
-        "uniform": _grid_occupancy(unif, k, n_bins),
-        "LHS": _grid_occupancy(lhs, k, n_bins),
-        "Sobol": _grid_occupancy(sobol, k, n_bins),
+        "MOEA-FIND": _grid_occupancy(borg, k, n_bins, shape, radius),
+        "uniform":   _grid_occupancy(unif, k, n_bins, shape, radius),
+        "LHS":       _grid_occupancy(lhs, k, n_bins, shape, radius),
+        "Sobol":     _grid_occupancy(sobol, k, n_bins, shape, radius),
     }
     labels = list(occ.keys())
     values = [occ[x]["fraction"] for x in labels]
@@ -464,7 +538,7 @@ def plot_high_d(
 
     fig.suptitle(
         f"Shell versus interior diagnostic, k={k} "
-        f"(ball radius {DISK_RADIUS}, anti-ideal at the corner)"
+        f"({shape} half-width {radius}, anti-ideal at the corner)"
     )
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -479,6 +553,8 @@ def summarize(
     lhs: np.ndarray,
     sobol: np.ndarray,
     interior_eps: float,
+    shape: str = "cube",
+    radius: float = FEASIBLE_RADIUS,
 ) -> dict:
     def pack(arr):
         d = _distance_from_antiideal_l1(arr)
@@ -490,19 +566,25 @@ def summarize(
                 "min": float(d.min()) if len(d) else None,
                 "max": float(d.max()) if len(d) else None,
             },
-            "interior_fraction": _interior_fraction(arr, interior_eps),
+            "interior_fraction": _interior_fraction(
+                arr, interior_eps, shape, radius),
             "orthant_occupancy": _orthant_occupancy(arr),
-            "grid_occupancy": _grid_occupancy(arr, k, 6 if k >= 4 else 12),
+            "grid_occupancy": _grid_occupancy(
+                arr, k, 6 if k >= 4 else 12, shape, radius),
         }
 
+    # Reference sampler labels track the chosen feasibility shape for
+    # downstream plotting and the summary table.
+    ref_key = f"in_{shape}"
     return {
         "k": k,
         "dv_range": [DV_LO, DV_HI],
-        "ball_radius": DISK_RADIUS,
+        "feasible_shape": shape,
+        "feasible_radius": radius,
         "MOEA-FIND": pack(borg),
-        "uniform_in_ball": pack(unif),
-        "lhs_in_ball": pack(lhs),
-        "sobol_in_ball": pack(sobol),
+        f"uniform_{ref_key}": pack(unif),
+        f"lhs_{ref_key}": pack(lhs),
+        f"sobol_{ref_key}": pack(sobol),
     }
 
 
@@ -514,11 +596,18 @@ def main() -> None:
     p.add_argument("--epsilon", type=float, default=None,
                    help="epsilon-box side (default 0.10 for k<=3, else 0.15+)")
     p.add_argument("--interior-eps", type=float, default=0.25)
+    p.add_argument("--feasible-shape", choices=VALID_SHAPES, default="cube",
+                   help="Feasible-region shape (default: cube — K-dim square)")
+    p.add_argument("--feasible-radius", type=float, default=FEASIBLE_RADIUS,
+                   help="Ball radius or cube half-width")
     p.add_argument("--output-dir", type=Path,
                    default=PROJECT_ROOT / "outputs" / OUTPUT_SLUG)
     p.add_argument("--figure-dir", type=Path,
                    default=PROJECT_ROOT / "figures")
     args = p.parse_args()
+
+    shape = args.feasible_shape
+    radius = args.feasible_radius
 
     eps = args.epsilon
     if eps is None:
@@ -533,26 +622,32 @@ def main() -> None:
         "k": args.k,
         "dv_range": [DV_LO, DV_HI],
         "anti_ideal": _anti_ideal(args.k).tolist(),
-        "ball_radius": DISK_RADIUS,
+        "feasible_shape": shape,
+        "feasible_radius": radius,
         "nfe": args.nfe,
         "seed": args.seed,
         "epsilon": eps,
         "interior_eps": args.interior_eps,
     }, indent=2))
 
-    print(f"[diag k={args.k}] ball radius={DISK_RADIUS} anti-ideal={_anti_ideal(args.k).tolist()}")
+    print(
+        f"[diag k={args.k}] shape={shape} radius={radius} "
+        f"anti-ideal={_anti_ideal(args.k).tolist()}"
+    )
 
-    borg = run_borg(args.k, args.nfe, args.seed, eps)
+    borg = run_borg(args.k, args.nfe, args.seed, eps, shape, radius)
     if len(borg) == 0:
         print(f"[diag k={args.k}] ERROR: no feasible Borg solutions.")
         return
 
     n = len(borg)
-    unif = _sample_in_ball(n, "uniform", args.seed, args.k)
-    lhs = _sample_in_ball(n, "lhs", args.seed, args.k)
-    sobol = _sample_in_ball(n, "sobol", args.seed, args.k)
+    unif = _sample_in_feasible(n, "uniform", args.seed, args.k, shape, radius)
+    lhs = _sample_in_feasible(n, "lhs", args.seed, args.k, shape, radius)
+    sobol = _sample_in_feasible(n, "sobol", args.seed, args.k, shape, radius)
 
-    stats = summarize(args.k, borg, unif, lhs, sobol, args.interior_eps)
+    stats = summarize(
+        args.k, borg, unif, lhs, sobol, args.interior_eps, shape, radius
+    )
     (k_dir / "results.json").write_text(
         json.dumps(stats, indent=2, default=float),
     )
@@ -561,9 +656,9 @@ def main() -> None:
 
     fig_path = args.figure_dir / f"figSI_shell_interior_k{args.k}.pdf"
     if args.k <= 3:
-        plot_low_d(args.k, borg, unif, lhs, sobol, fig_path)
+        plot_low_d(args.k, borg, unif, lhs, sobol, fig_path, shape, radius)
     else:
-        plot_high_d(args.k, borg, unif, lhs, sobol, fig_path)
+        plot_high_d(args.k, borg, unif, lhs, sobol, fig_path, shape, radius)
     print(f"[diag k={args.k}] figure: {fig_path}")
     print(json.dumps(stats, indent=2, default=float))
 

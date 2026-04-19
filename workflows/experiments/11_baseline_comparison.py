@@ -30,6 +30,35 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.analysis import coverage_metrics  # noqa: E402
+from src.experiment_config import DEFAULT_EXPERIMENT  # noqa: E402
+from src.experiment_utils import make_variant_slug  # noqa: E402
+
+
+def _default_moea_front() -> Path:
+    """Default --moea-front path, derived from DEFAULT_EXPERIMENT.
+
+    Resolves to ``outputs/exp04_kirsch_single_site/<variant_slug>/results.json``
+    where the slug is built from the centralized config (mode, T, NFE,
+    seed, constrained). CLI ``--moea-front`` overrides this.
+    """
+    cfg = DEFAULT_EXPERIMENT
+    slug = make_variant_slug(
+        mode=cfg.dv_mode,
+        n_years=cfg.n_years_out,
+        nfe=cfg.nfe,
+        seed=cfg.seed,
+        constrained=cfg.constraints_json is not None,
+    )
+    return (PROJECT_ROOT / "outputs" / "exp04_kirsch_single_site"
+            / slug / "results.json")
+
+
+DEFAULT_KIRSCH_LIBRARY = (
+    PROJECT_ROOT / "outputs" / "exp05_kirsch_library" / "characteristics.npz"
+)
+DEFAULT_CONVERGENCE = (
+    PROJECT_ROOT / "outputs" / "diag_kirsch_convergence" / "convergence.json"
+)
 
 
 def load_kirsch(path: Path) -> np.ndarray:
@@ -52,13 +81,35 @@ def load_moea(path: Path):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--kirsch-library", type=Path, required=True)
-    p.add_argument("--moea-front", type=Path, required=True)
-    p.add_argument("--convergence", type=Path, default=None,
-                   help="convergence.json from diag_kirsch_convergence.py")
+    # Defaults come from src/experiment_config.DEFAULT_EXPERIMENT via the
+    # helpers above — override per-run if a specific variant is needed.
+    p.add_argument(
+        "--kirsch-library", type=Path, default=DEFAULT_KIRSCH_LIBRARY,
+        help="Path to Kirsch library characteristics "
+             "(default: exp05_kirsch_library/characteristics.npz).",
+    )
+    p.add_argument(
+        "--moea-front", type=Path, default=_default_moea_front(),
+        help="Path to exp04 results.json. Default resolves from "
+             "DEFAULT_EXPERIMENT (mode/T/NFE/seed/constrained).",
+    )
+    p.add_argument(
+        "--convergence", type=Path, default=DEFAULT_CONVERGENCE,
+        help="convergence.json from diag_kirsch_convergence.py "
+             "(default: diag_kirsch_convergence/convergence.json).",
+    )
     p.add_argument("--output-dir", type=Path,
                    default=PROJECT_ROOT / "outputs" / "exp11_baseline_comparison")
     args = p.parse_args()
+
+    # Early fail with a clear message if upstream inputs are missing.
+    for label, path in [("--kirsch-library", args.kirsch_library),
+                        ("--moea-front", args.moea_front)]:
+        if not path.exists():
+            raise SystemExit(
+                f"[11] {label}={path} does not exist. "
+                "Run the upstream experiment or override the CLI arg."
+            )
 
     out = args.output_dir
     out.mkdir(parents=True, exist_ok=True)

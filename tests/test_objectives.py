@@ -75,6 +75,23 @@ class TestAnalyticObjectives:
 # ---------------------------------------------------------------------------
 
 class TestDroughtObjectives:
+    """drought_objectives implements the DD-11 L1 Device:
+        f_j(x)     = D_j(x)                     for j = 1..K (raw metric)
+        f_{K+1}(x) = ||D(x) - D*||_1            (Manhattan distance)
+
+    The first K entries are raw drought characteristics (minimised toward 0
+    by Borg). The (K+1)th entry is the Manhattan distance to the anti-ideal
+    D*. Under D_j <= D*_j (enforced by compute_ssi_anti_ideal placing D*
+    outside the feasible region), sum_{j=1}^{K+1} f_j is constant across
+    feasible solutions, so every feasible point is Pareto non-dominated and
+    Borg's epsilon-box archive tiles the drought-characteristic space.
+
+    This is the load-bearing formulation of MOEA-FIND — see
+    manuscript/design_decisions.md §DD-11. Do NOT re-introduce a
+    ``|D_j - D*_j|`` variant of the first K objectives; that collapses the
+    Pareto front to the single point nearest D*.
+    """
+
     def _chars(self, duration=3.0, avg_severity=1.5):
         return {"mean_duration": duration, "mean_avg_severity": avg_severity}
 
@@ -85,28 +102,81 @@ class TestDroughtObjectives:
         )
         assert objs.shape == (3,)
 
-    def test_manhattan_norm_matches(self):
-        anti_ideal = np.array([5.0, 2.0])
-        objs = drought_objectives(self._chars(3.0, 1.5), anti_ideal)
-        expected = manhattan_norm(np.array([3.0, 1.5]), anti_ideal)
-        assert objs[-1] == pytest.approx(expected)
-
-    def test_zero_events_norm_equals_sum_of_anti_ideal(self):
-        anti_ideal = np.array([5.0, 2.0])
-        objs = drought_objectives(self._chars(0.0, 0.0), anti_ideal)
-        assert objs[-1] == pytest.approx(np.sum(anti_ideal))
-
-    def test_metric_values_in_first_k_elements(self):
+    def test_first_k_entries_are_raw_metrics(self):
+        # DD-11: f_j = D_j for j = 1..K (NOT |D_j - D*_j|).
         anti_ideal = np.array([10.0, 3.0])
         objs = drought_objectives(self._chars(4.0, 1.0), anti_ideal)
         assert objs[0] == pytest.approx(4.0)
         assert objs[1] == pytest.approx(1.0)
 
-    def test_missing_key_defaults_to_zero(self):
-        chars = {}  # no keys at all
-        objs = drought_objectives(chars, anti_ideal=np.array([5.0, 2.0]))
+    def test_last_entry_is_manhattan_distance_to_anti_ideal(self):
+        anti_ideal = np.array([5.0, 2.0])
+        objs = drought_objectives(self._chars(3.0, 1.5), anti_ideal)
+        expected = manhattan_norm(np.array([3.0, 1.5]), anti_ideal)
+        assert objs[-1] == pytest.approx(expected)
+        # Explicit check: |3 - 5| + |1.5 - 2| = 2.5.
+        assert objs[-1] == pytest.approx(2.5)
+
+    def test_hyperplane_identity_holds_inside_feasible_region(self):
+        # DD-11: sum_{j=1..K+1} f_j == sum_j D*_j  whenever D_j <= D*_j.
+        anti_ideal = np.array([10.0, 3.0])
+        for duration, severity in [(0.0, 0.0), (4.0, 1.0), (9.0, 2.5), (10.0, 3.0)]:
+            objs = drought_objectives(
+                self._chars(duration, severity), anti_ideal
+            )
+            assert np.sum(objs) == pytest.approx(np.sum(anti_ideal)), (
+                f"hyperplane identity broken at D=({duration}, {severity}): "
+                f"sum(objs)={np.sum(objs)}, sum(D*)={np.sum(anti_ideal)}"
+            )
+
+    def test_at_anti_ideal_last_objective_is_zero(self):
+        # When D_j = D*_j for all j, the Manhattan distance is zero and all
+        # of the "drought magnitude" lives in the first K raw objectives.
+        anti_ideal = np.array([8.0, 4.0])
+        objs = drought_objectives(self._chars(8.0, 4.0), anti_ideal)
+        assert objs[0] == pytest.approx(8.0)
+        assert objs[1] == pytest.approx(4.0)
+        assert objs[-1] == pytest.approx(0.0)
+
+    def test_no_drought_corner_norm_equals_sum_of_anti_ideal(self):
+        # At the opposite corner, D_j = 0 for all j, so f_{K+1} = sum(D*).
+        anti_ideal = np.array([5.0, 2.0])
+        objs = drought_objectives(self._chars(0.0, 0.0), anti_ideal)
+        assert objs[:-1] == pytest.approx(np.zeros(2))
+        assert objs[-1] == pytest.approx(np.sum(anti_ideal))
+
+    def test_missing_key_defaults_to_zero_metric(self):
+        # Missing key → D_j = 0, so f_j = 0 and f_{K+1} picks up the full
+        # anti-ideal contribution for that dimension.
+        anti_ideal = np.array([5.0, 2.0])
+        objs = drought_objectives({}, anti_ideal=anti_ideal)
         assert objs[0] == pytest.approx(0.0)
         assert objs[1] == pytest.approx(0.0)
+        assert objs[-1] == pytest.approx(np.sum(anti_ideal))
+
+    def test_anti_ideal_shape_mismatch_raises(self):
+        with pytest.raises(ValueError, match="anti_ideal must be length"):
+            drought_objectives(
+                self._chars(), anti_ideal=np.array([1.0]),
+                objective_keys=("mean_duration", "mean_avg_severity"),
+            )
+
+    def test_cyclic_month_anti_ideal_outside_calendar(self):
+        # peak_severity_month ∈ [0, 12]; D*_month = 18 (set by
+        # compute_ssi_anti_ideal as 12 × 1.5) keeps the hyperplane
+        # assumption D_j <= D*_j intact even for cyclic axes.
+        chars = {"mean_duration": 5.0, "peak_severity_month": 11.0}
+        anti_ideal = np.array([10.0, 18.0])
+        objs = drought_objectives(
+            chars, anti_ideal=anti_ideal,
+            objective_keys=("mean_duration", "peak_severity_month"),
+        )
+        assert objs[0] == pytest.approx(5.0)
+        assert objs[1] == pytest.approx(11.0)
+        # Manhattan: |5 - 10| + |11 - 18| = 5 + 7 = 12.
+        assert objs[-1] == pytest.approx(12.0)
+        # Hyperplane identity still holds with cyclic-month D*.
+        assert np.sum(objs) == pytest.approx(np.sum(anti_ideal))
 
 
 # ---------------------------------------------------------------------------

@@ -44,16 +44,34 @@ def load_results(outputs_root: Path) -> list:
     return rows
 
 
+def _sampler_keys(row: dict) -> list[tuple[str, str]]:
+    """Return [(json_key, display_label), ...] for the reference samplers.
+
+    Handles both feasibility shapes: cube runs write keys like
+    ``uniform_in_cube`` / ``lhs_in_cube`` / ``sobol_in_cube``; ball runs
+    use the ``_in_ball`` suffix. This helper lets the summary figure
+    work transparently across shapes.
+    """
+    shape = row.get("feasible_shape", "ball")
+    ref_suffix = f"_in_{shape}"
+    return [
+        ("MOEA-FIND", "MOEA-FIND"),
+        (f"uniform{ref_suffix}", "uniform"),
+        (f"lhs{ref_suffix}", "LHS"),
+        (f"sobol{ref_suffix}", "Sobol"),
+    ]
+
+
 def plot_summary(rows: list, out_path: Path) -> None:
     ks = [k for k, _ in rows]
-    samplers = ["MOEA-FIND", "uniform_in_ball", "lhs_in_ball", "sobol_in_ball"]
-    labels = ["MOEA-FIND", "uniform", "LHS", "Sobol"]
-    colors = {
-        "MOEA-FIND": "tab:blue",
-        "uniform_in_ball": "tab:gray",
-        "lhs_in_ball": "tab:orange",
-        "sobol_in_ball": "tab:green",
-    }
+    # Sampler keys can differ row-by-row if the sweep mixes shapes. For
+    # labels + colors we drive off the first row, which in practice is
+    # consistent across a sweep.
+    sampler_pairs = _sampler_keys(rows[0][1])
+    samplers = [s for s, _ in sampler_pairs]
+    labels = [lbl for _, lbl in sampler_pairs]
+    color_list = ["tab:blue", "tab:gray", "tab:orange", "tab:green"]
+    colors = dict(zip(samplers, color_list))
 
     # Four panels: mean distance to D*, interior fraction, orthant occupancy,
     # grid cell occupancy. Each panel plots one line per sampler as a function
@@ -95,9 +113,11 @@ def plot_summary(rows: list, out_path: Path) -> None:
         ax.set_xticks(ks)
     axes[0].legend(fontsize=8, loc="best")
 
+    shape = rows[0][1].get("feasible_shape", "ball")
+    radius = rows[0][1].get("feasible_radius", rows[0][1].get("ball_radius", 2.5))
     fig.suptitle(
-        "Shell versus interior diagnostic, dimension sweep "
-        "(k-ball radius 2.5, anti-ideal at the positive corner)"
+        f"Shell versus interior diagnostic, dimension sweep "
+        f"(k-{shape} half-width {radius}, anti-ideal at the positive corner)"
     )
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,23 +128,18 @@ def plot_summary(rows: list, out_path: Path) -> None:
 def write_table(rows: list, out_path: Path) -> None:
     """Write a plain Markdown summary table to accompany the figure."""
     lines = [
-        "| k | sampler    | n archive | mean L1 to D* | std | interior frac | orthant frac | grid frac |",
-        "|---|------------|-----------|---------------|-----|---------------|--------------|-----------|",
-    ]
-    samplers = [
-        ("MOEA-FIND", "MOEA-FIND"),
-        ("uniform_in_ball", "uniform"),
-        ("lhs_in_ball", "LHS"),
-        ("sobol_in_ball", "Sobol"),
+        "| k | shape | sampler    | n archive | mean L1 to D* | std | interior frac | orthant frac | grid frac |",
+        "|---|-------|------------|-----------|---------------|-----|---------------|--------------|-----------|",
     ]
     for k, data in rows:
-        for key, name in samplers:
+        shape = data.get("feasible_shape", "ball")
+        for key, name in _sampler_keys(data):
             s = data[key]
             d = s["dist_from_D*"]
             orth = s.get("orthant_occupancy", {}).get("fraction", float("nan"))
             grid = s.get("grid_occupancy", {}).get("fraction", float("nan"))
             lines.append(
-                f"| {k} | {name:<10} | {s['n']} | "
+                f"| {k} | {shape} | {name:<10} | {s['n']} | "
                 f"{d['mean']:.3f} | {d['std']:.3f} | "
                 f"{s['interior_fraction']:.3f} | {orth:.3f} | {grid:.3f} |"
             )

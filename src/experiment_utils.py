@@ -12,7 +12,7 @@ The ``run_experiment`` function is the primary entry point. It:
 
 import time
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 
@@ -84,19 +84,40 @@ def compute_ssi_anti_ideal(
     objective_keys: tuple,
     headroom: float = 1.5,
 ) -> np.ndarray:
-    """Compute anti-ideal from historical SSI drought characteristics.
+    """Build the DD-11 anti-ideal point ``D*`` from historical drought chars.
 
-    Sets anti-ideal at headroom * max observed value for each metric.
+    ``D*`` must be placed **outside the feasible region** in every
+    objective so that ``D_j <= D*_j`` holds for every feasible synthetic
+    trace. Under that assumption the L1 Device in
+    :func:`src.objectives.drought_objectives` produces the constant-sum
+    hyperplane identity that makes every feasible point Pareto non-
+    dominated (see ``manuscript/design_decisions.md §DD-11``).
+
+    Placement rules:
+
+    - **Non-cyclic metrics** (``mean_duration``, ``mean_avg_severity``,
+      etc.): ``D*_j = headroom × max_observed D_j`` — a drought worse
+      than the historical record.
+    - **Cyclic calendar-month metrics**
+      (:data:`src.objectives.CYCLIC_MONTH_KEYS`, e.g.
+      ``peak_severity_month``): ``D*_j = 12 × headroom`` — a month
+      number outside the 1..12 calendar so that any feasible month is
+      guaranteed ``D_j <= D*_j``. This placement is load-bearing for the
+      hyperplane identity; do not replace it with a month inside
+      ``[1, 12]``.
 
     Args:
         hist_chars: Historical drought characteristics dict from
-            compute_ssi_drought_characteristics.
+            :func:`src.objectives.compute_ssi_drought_characteristics`.
         objective_keys: Metric keys for objectives.
-        headroom: Multiplier for anti-ideal placement (default 1.5).
+        headroom: Multiplier applied to ``max_observed`` for non-cyclic
+            metrics and to ``12`` for cyclic-month metrics. Default 1.5.
 
     Returns:
-        Anti-ideal array (k-dimensional).
+        Anti-ideal array ``D*`` of length ``len(objective_keys)``.
     """
+    from src.objectives import CYCLIC_MONTH_KEYS
+
     max_key_map = {
         "mean_duration": "max_duration",
         "mean_magnitude": "max_magnitude",
@@ -110,11 +131,15 @@ def compute_ssi_anti_ideal(
 
     anti_ideal = []
     for key in objective_keys:
-        max_key = max_key_map.get(key, key)
-        val = hist_chars.get(max_key, 10.0)
-        if val == 0:
-            val = 10.0  # fallback for zero-event case
-        anti_ideal.append(val * headroom)
+        if key in CYCLIC_MONTH_KEYS:
+            # Place outside the 1..12 calendar so D_j <= D*_j always holds.
+            anti_ideal.append(12.0 * headroom)
+        else:
+            max_key = max_key_map.get(key, key)
+            val = hist_chars.get(max_key, 10.0)
+            if val == 0:
+                val = 10.0  # fallback for zero-event case
+            anti_ideal.append(val * headroom)
 
     return np.array(anti_ideal)
 
@@ -122,23 +147,42 @@ def compute_ssi_anti_ideal(
 # ---------------------------------------------------------------------------
 # Epsilon defaults
 # ---------------------------------------------------------------------------
+#
+# The canonical EPSILON_MAP lives in :mod:`src.experiment_config`. It is
+# re-exported here for backwards compatibility with call sites that
+# import ``build_epsilons`` without reaching into the config module.
 
-EPSILON_MAP = {
-    "mean_duration": 0.5,
-    "mean_magnitude": 0.5,
-    "mean_severity": 0.1,
-    "mean_avg_severity": 0.1,
-    "max_duration": 1.0,
-    "max_magnitude": 1.0,
-    "worst_severity": 0.1,
-    "frequency": 0.5,
-}
+from src.experiment_config import EPSILON_MAP  # noqa: E402
 
 
-def build_epsilons(objective_keys: tuple) -> list:
-    """Return epsilon list for objectives + Manhattan norm."""
-    eps = [EPSILON_MAP.get(k, 0.5) for k in objective_keys]
-    eps.append(sum(eps))  # Manhattan norm epsilon
+def build_epsilons(
+    objective_keys: tuple,
+    epsilon_map: Optional[Dict[str, float]] = None,
+    manhattan_eps: Optional[float] = None,
+) -> list:
+    """Return epsilon list for objectives + Manhattan norm.
+
+    Args:
+        objective_keys: Objective names in the order they appear in
+            the MOEA objective vector.
+        epsilon_map: Optional override. Defaults to
+            :data:`src.experiment_config.EPSILON_MAP`.
+        manhattan_eps: Epsilon for the ``f_{K+1}`` Manhattan-norm
+            auxiliary objective. If None, falls back to
+            :data:`src.experiment_config.DEFAULT_EXPERIMENT.manhattan_eps`.
+            Historically this defaulted to ``sum(per_axis_eps)`` — a
+            "sum rule" that turned out to be too coarse in practice
+            (it let the Manhattan axis span fewer epsilon-boxes than
+            the per-objective axes, suppressing archive spread).
+            The new default is a small fixed value (0.1) that matches
+            the per-axis resolution regime.
+    """
+    em = epsilon_map if epsilon_map is not None else EPSILON_MAP
+    eps = [em.get(k, 0.5) for k in objective_keys]
+    if manhattan_eps is None:
+        from src.experiment_config import DEFAULT_EXPERIMENT
+        manhattan_eps = DEFAULT_EXPERIMENT.manhattan_eps
+    eps.append(float(manhattan_eps))
     return eps
 
 

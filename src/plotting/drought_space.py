@@ -23,19 +23,39 @@ def plot_drought_scatter(
     alpha: float = 0.6,
     historical_point: Optional[Tuple[float, float]] = None,
     anti_ideal: Optional[np.ndarray] = None,
+    historical_cloud: Optional[np.ndarray] = None,
+    historical_cloud_label: str = "Historical T-year blocks",
 ):
     """Plot drought metrics as scatter on given axes.
 
     Args:
         ax: Matplotlib axes.
-        drought_metrics: Array of shape (n, 2) with (duration, intensity).
+        drought_metrics: Array of shape (n, 2) with the two drought
+            characteristic values per Pareto member.
         color: Point color.
         label: Legend label.
         marker_size: Scatter point size.
         alpha: Point transparency.
-        historical_point: Optional (duration, intensity) of historical mean.
+        historical_point: Optional (duration, intensity) of the
+            historical record as a single point (e.g. the
+            single-window mean).
         anti_ideal: Optional anti-ideal point to mark.
+        historical_cloud: Optional ``(n_blocks, 2)`` array with per-
+            historical-block drought characteristics. Each block is
+            plotted as a small grey marker so the Pareto archive can
+            be compared against the historical *distribution* of
+            T-year drought metrics rather than a single point.
+        historical_cloud_label: Legend label for the cloud.
     """
+    if historical_cloud is not None and len(historical_cloud):
+        ax.scatter(
+            historical_cloud[:, 0], historical_cloud[:, 1],
+            s=18, alpha=0.55, facecolors="none",
+            edgecolors="#4a4a4a", linewidths=0.8,
+            label=f"{historical_cloud_label} (n={len(historical_cloud)})",
+            rasterized=True, zorder=5,
+        )
+
     ax.scatter(drought_metrics[:, 0], drought_metrics[:, 1],
                s=marker_size, alpha=alpha, c=color, label=label, rasterized=True)
 
@@ -92,17 +112,25 @@ def plot_scatter_with_marginals(
     title: str = "",
     historical_point: Optional[Tuple[float, float]] = None,
     anti_ideal: Optional[np.ndarray] = None,
+    historical_cloud: Optional[np.ndarray] = None,
     objective_labels: Tuple[str, str] = ("Mean Duration (months)", "Mean Intensity (cfs)"),
     figsize: Tuple[float, float] = (8, 8),
 ) -> plt.Figure:
     """Scatter plot with marginal histograms.
 
     Args:
-        drought_metrics: Array of shape (n, 2).
-        color: Point/histogram color.
+        drought_metrics: Array of shape ``(n, 2)``.
+        color: Point/histogram color for the Pareto archive.
         title: Figure title.
-        historical_point: Optional historical mean.
+        historical_point: Optional historical mean (single-window).
         anti_ideal: Optional anti-ideal.
+        historical_cloud: Optional ``(n_blocks, 2)`` per-block
+            drought characteristics from
+            :func:`src.historical_blocks.compute_historical_block_chars`.
+            Drawn as open grey markers in the main panel and as a
+            step-histogram on each marginal so the Pareto archive can
+            be compared against the historical T-year block
+            distribution rather than a single point.
         objective_labels: Axis labels.
         figsize: Figure size.
 
@@ -117,25 +145,33 @@ def plot_scatter_with_marginals(
     ax_top = fig.add_subplot(gs[0, 0:3], sharex=ax_main)
     ax_right = fig.add_subplot(gs[1:4, 3], sharey=ax_main)
 
-    # Main scatter
+    # Main scatter (Pareto + optional historical cloud + markers)
     plot_drought_scatter(ax_main, drought_metrics, color=color,
                          historical_point=historical_point,
-                         anti_ideal=anti_ideal)
+                         anti_ideal=anti_ideal,
+                         historical_cloud=historical_cloud)
     ax_main.set_xlabel(objective_labels[0])
     ax_main.set_ylabel(objective_labels[1])
     ax_main.legend(fontsize=8)
 
-    # Top marginal
+    # Top marginal (x axis = objective[0])
     ax_top.hist(drought_metrics[:, 0], bins=30, color=color, alpha=0.6,
-                edgecolor="black", linewidth=0.3)
+                edgecolor="black", linewidth=0.3, label="MOEA-FIND")
+    if historical_cloud is not None and len(historical_cloud):
+        ax_top.hist(historical_cloud[:, 0], bins=30,
+                    histtype="step", color="#4a4a4a", linewidth=1.0,
+                    label="Historical blocks")
     if historical_point:
         ax_top.axvline(historical_point[0], color="black", linestyle="--", linewidth=0.8)
     ax_top.tick_params(labelbottom=False)
     ax_top.set_ylabel("Count")
 
-    # Right marginal
+    # Right marginal (y axis = objective[1])
     ax_right.hist(drought_metrics[:, 1], bins=30, orientation="horizontal",
                   color=color, alpha=0.6, edgecolor="black", linewidth=0.3)
+    if historical_cloud is not None and len(historical_cloud):
+        ax_right.hist(historical_cloud[:, 1], bins=30, orientation="horizontal",
+                      histtype="step", color="#4a4a4a", linewidth=1.0)
     if historical_point:
         ax_right.axhline(historical_point[1], color="black", linestyle="--", linewidth=0.8)
     ax_right.tick_params(labelleft=False)
@@ -144,6 +180,119 @@ def plot_scatter_with_marginals(
     if title:
         fig.suptitle(title, fontsize=12, y=1.01)
 
+    return fig
+
+
+def plot_drought_space_3d(
+    drought_metrics: np.ndarray,
+    anti_ideal: np.ndarray,
+    objective_labels: Tuple[str, str, str] = ("$D_1$", "$D_2$", "$D_3$"),
+    historical_point: Optional[np.ndarray] = None,
+    historical_cloud: Optional[np.ndarray] = None,
+    title: str = "",
+    figsize: Tuple[float, float] = (9, 7),
+    include_anti_ideal: bool = False,
+):
+    """3D scatter of three drought objectives with an optional
+    per-block historical cloud.
+
+    The axes are zoomed to the joint range of the Pareto archive,
+    historical point, and historical cloud (the anti-ideal is typically
+    far outside this range and is annotated in the title rather than
+    drawn, so the Pareto cluster remains readable).
+
+    Args:
+        drought_metrics: Array of shape ``(n, 3)`` — the three drought
+            characteristics Borg saw as objectives, in order.
+        anti_ideal: 3-D anti-ideal point. Used for colouring by
+            Manhattan distance and reported in the title. Only drawn
+            on the axes when ``include_anti_ideal=True``.
+        objective_labels: Axis labels in the same order as
+            ``drought_metrics`` columns.
+        historical_point: Optional 3-D single-window historical point.
+        historical_cloud: Optional ``(n_blocks, 3)`` per-block historical
+            drought characteristics from
+            :func:`src.historical_blocks.compute_historical_block_chars`.
+        title: Figure title prefix (appended with hyperplane + D* info).
+        figsize: Figure size.
+        include_anti_ideal: When True the anti-ideal marker is drawn and
+            the axes expanded to contain it — useful once for context,
+            but at default headroom the Pareto is typically crushed.
+
+    Returns:
+        Matplotlib figure.
+    """
+    import matplotlib.pyplot as _plt
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+    apply_style()
+
+    dm = np.asarray(drought_metrics, dtype=float)
+    D_star = np.asarray(anti_ideal, dtype=float)
+    assert dm.shape[1] == 3, "3D scatter requires exactly three objectives"
+    assert D_star.shape == (3,), "anti_ideal must be 3-D"
+
+    manh = np.sum(np.abs(dm - D_star), axis=1)
+
+    fig = _plt.figure(figsize=figsize)
+    ax = fig.add_subplot(111, projection="3d")
+
+    sc = ax.scatter(dm[:, 0], dm[:, 1], dm[:, 2],
+                    c=manh, cmap="viridis_r", s=22, alpha=0.9,
+                    edgecolor="none", label="MOEA-FIND")
+
+    if historical_cloud is not None and len(historical_cloud):
+        ax.scatter(
+            historical_cloud[:, 0], historical_cloud[:, 1], historical_cloud[:, 2],
+            facecolors="none", edgecolors="#4a4a4a", s=28, linewidth=0.9,
+            label=f"Historical blocks (n={len(historical_cloud)})",
+        )
+
+    if historical_point is not None:
+        hp = np.asarray(historical_point, dtype=float)
+        ax.scatter(*hp, marker="*", color="black", s=280,
+                   edgecolor="white", linewidth=0.8,
+                   label="Historical mean", zorder=10)
+
+    # Axis ranges: default to Pareto + historical cloud + historical point.
+    xs = [dm[:, 0]]
+    ys = [dm[:, 1]]
+    zs = [dm[:, 2]]
+    if historical_cloud is not None and len(historical_cloud):
+        xs.append(historical_cloud[:, 0])
+        ys.append(historical_cloud[:, 1])
+        zs.append(historical_cloud[:, 2])
+    if historical_point is not None:
+        xs.append(np.array([historical_point[0]]))
+        ys.append(np.array([historical_point[1]]))
+        zs.append(np.array([historical_point[2]]))
+    if include_anti_ideal:
+        ax.scatter(*D_star, marker="X", color="red", s=180,
+                   edgecolor="black", linewidth=0.6,
+                   label=r"anti-ideal $D^*$")
+        xs.append(np.array([D_star[0]]))
+        ys.append(np.array([D_star[1]]))
+        zs.append(np.array([D_star[2]]))
+    xs_all = np.concatenate(xs); ys_all = np.concatenate(ys); zs_all = np.concatenate(zs)
+    pad_x = 0.05 * (np.ptp(xs_all) + 1e-9)
+    pad_y = 0.05 * (np.ptp(ys_all) + 1e-9)
+    pad_z = 0.05 * (np.ptp(zs_all) + 1e-9)
+    ax.set_xlim(xs_all.min() - pad_x, xs_all.max() + pad_x)
+    ax.set_ylim(ys_all.min() - pad_y, ys_all.max() + pad_y)
+    ax.set_zlim(zs_all.min() - pad_z, zs_all.max() + pad_z)
+    ax.set_xlabel(objective_labels[0])
+    ax.set_ylabel(objective_labels[1])
+    ax.set_zlabel(objective_labels[2])
+
+    subtitle = (
+        f"anti-ideal $D^*=$({D_star[0]:.2f}, {D_star[1]:.2f}, {D_star[2]:.2f})"
+        + ("" if include_anti_ideal else " (off-plot)")
+    )
+    full_title = f"{title}\n{subtitle}" if title else subtitle
+    ax.set_title(full_title, fontsize=10)
+
+    cb = fig.colorbar(sc, ax=ax, shrink=0.6, pad=0.08)
+    cb.set_label(r"Manhattan distance $\|D-D^*\|_1$")
+    ax.legend(loc="upper left", fontsize=9)
     return fig
 
 

@@ -18,4 +18,12 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-python workflows/experiments/10_plot_manuscript_figures.py
+# Resolve which exp04 variant feeds fig05. If BORG_NFE is set (e.g. by
+# the upstream exp04 SLURM via --export), pass it through; otherwise
+# let script 10 fall back to DEFAULT_EXPERIMENT.nfe.
+PY_ARGS=()
+if [ -n "${BORG_NFE:-}" ]; then
+    PY_ARGS+=(--exp04-nfe "${BORG_NFE}")
+fi
+
+python workflows/experiments/10_plot_manuscript_figures.py "${PY_ARGS[@]}"

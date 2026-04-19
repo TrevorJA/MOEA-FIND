@@ -105,20 +105,48 @@ def plot_hydrograph_panel(
     return fig, axes
 
 
+def _acf(x: np.ndarray, max_lag: int) -> np.ndarray:
+    """One-sided sample autocorrelation up to ``max_lag`` inclusive."""
+    n = len(x)
+    mean = np.mean(x)
+    var = np.var(x)
+    if var < 1e-12:
+        return np.zeros(max_lag + 1)
+    result = np.zeros(max_lag + 1)
+    for lag in range(max_lag + 1):
+        cov = np.mean((x[:n - lag] - mean) * (x[lag:] - mean))
+        result[lag] = cov / var
+    return result
+
+
+def _envelope(stack: np.ndarray, pcts=(10, 50, 90)) -> tuple:
+    """Return (p_low, p_mid, p_high) along axis 0."""
+    p_low, p_mid, p_high = (np.percentile(stack, p, axis=0) for p in pcts)
+    return p_low, p_mid, p_high
+
+
 def plot_autocorrelation_comparison(
     synthetic_traces: List[np.ndarray],
-    historical_1d: np.ndarray,
+    historical_blocks_1d: List[np.ndarray],
     max_lag: int = 24,
     trace_labels: Optional[List[str]] = None,
     figsize: Tuple[float, float] = (8, 5),
 ) -> Tuple[plt.Figure, plt.Axes]:
-    """Compare autocorrelation functions of synthetic traces vs historical.
+    """Compare autocorrelation envelopes of synthetic vs historical blocks.
+
+    Both sides are rendered as 10-50-90th percentile bands computed over
+    the ACF of each block/trace — so the comparison is envelope-vs-
+    envelope at matched block length.
 
     Args:
-        synthetic_traces: List of 1D monthly flow arrays.
-        historical_1d: Historical monthly flows (1D).
+        synthetic_traces: List of 1D monthly flow arrays (each length
+            ``T_years * 12``).
+        historical_blocks_1d: List of 1D historical monthly blocks at the
+            same block length as ``synthetic_traces``. See
+            :func:`src.historical_blocks.resample_historical_blocks`.
         max_lag: Maximum lag to compute.
-        trace_labels: Optional labels for each trace.
+        trace_labels: Optional labels for each trace (used only when
+            there are <=5 synthetic traces).
         figsize: Figure size.
 
     Returns:
@@ -126,43 +154,25 @@ def plot_autocorrelation_comparison(
     """
     apply_style()
 
-    def acf(x, max_lag):
-        n = len(x)
-        mean = np.mean(x)
-        var = np.var(x)
-        if var < 1e-12:
-            return np.zeros(max_lag + 1)
-        result = np.zeros(max_lag + 1)
-        for lag in range(max_lag + 1):
-            cov = np.mean((x[:n-lag] - mean) * (x[lag:] - mean))
-            result[lag] = cov / var
-        return result
-
     fig, ax = plt.subplots(figsize=figsize)
     lags = np.arange(max_lag + 1)
 
-    # Historical
-    hist_acf = acf(historical_1d, max_lag)
-    ax.plot(lags, hist_acf, color=COLORS["historical"], linewidth=2,
-            label="Historical", zorder=10)
+    # Historical block envelope
+    hist_acfs = np.array([_acf(b, max_lag) for b in historical_blocks_1d])
+    h_lo, h_mid, h_hi = _envelope(hist_acfs)
+    ax.fill_between(lags, h_lo, h_hi, alpha=0.25, color=COLORS["historical"],
+                    label=f"Historical blocks (n={len(historical_blocks_1d)}, 10-90%)")
+    ax.plot(lags, h_mid, color=COLORS["historical"], linewidth=2,
+            label="Historical block median", zorder=10)
 
-    # Synthetic traces
-    synth_acfs = []
-    for i, trace in enumerate(synthetic_traces):
-        trace_acf = acf(trace, max_lag)
-        synth_acfs.append(trace_acf)
-
-    synth_acfs = np.array(synth_acfs)
-
+    # Synthetic envelope
+    synth_acfs = np.array([_acf(t, max_lag) for t in synthetic_traces])
     if len(synth_acfs) > 5:
-        # Show envelope (10th-90th percentile) + median
-        p10 = np.percentile(synth_acfs, 10, axis=0)
-        p50 = np.percentile(synth_acfs, 50, axis=0)
-        p90 = np.percentile(synth_acfs, 90, axis=0)
-        ax.fill_between(lags, p10, p90, alpha=0.2, color=COLORS["empirical"],
-                         label="Synthetic (10-90th pctl)")
-        ax.plot(lags, p50, color=COLORS["empirical"], linewidth=1.5,
-                label="Synthetic median", linestyle="--")
+        s_lo, s_mid, s_hi = _envelope(synth_acfs)
+        ax.fill_between(lags, s_lo, s_hi, alpha=0.2, color=COLORS["empirical"],
+                        label=f"Synthetic (n={len(synth_acfs)}, 10-90%)")
+        ax.plot(lags, s_mid, "--", color=COLORS["empirical"], linewidth=1.5,
+                label="Synthetic median")
     else:
         for i, trace_acf in enumerate(synth_acfs):
             lbl = trace_labels[i] if trace_labels else f"Trace {i+1}"
@@ -179,47 +189,57 @@ def plot_autocorrelation_comparison(
 
 def plot_seasonal_cycle_comparison(
     synthetic_traces_2d: List[np.ndarray],
-    historical_2d: np.ndarray,
+    historical_blocks_2d: List[np.ndarray],
     figsize: Tuple[float, float] = (8, 5),
 ) -> Tuple[plt.Figure, plt.Axes]:
-    """Compare monthly mean and std of synthetic traces vs historical.
+    """Compare seasonal-cycle envelopes of synthetic vs historical blocks.
+
+    Both sides render per-month 10-50-90th percentile bands for the mean
+    and std of the monthly flow cycle, computed over T-year blocks.
 
     Args:
-        synthetic_traces_2d: List of (n_years, 12) arrays.
-        historical_2d: Historical monthly flows (n_years, 12).
+        synthetic_traces_2d: List of (T_years, 12) synthetic arrays.
+        historical_blocks_2d: List of (T_years, 12) historical blocks,
+            same length as synthetic. See
+            :func:`src.historical_blocks.resample_historical_blocks_2d`.
         figsize: Figure size.
 
     Returns:
-        (fig, axes) tuple with mean and std panels.
+        ``(fig, (ax_mean, ax_std))``.
     """
     apply_style()
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
     months = np.arange(12)
 
-    hist_mean = np.mean(historical_2d, axis=0)
-    hist_std = np.std(historical_2d, axis=0, ddof=1)
+    # Historical block envelopes
+    h_means = np.array([b.mean(axis=0) for b in historical_blocks_2d])
+    h_stds = np.array([b.std(axis=0, ddof=1) for b in historical_blocks_2d])
+    for ax, stat, lbl_stat in [(ax1, h_means, "mean"), (ax2, h_stds, "std")]:
+        p_lo, p_mid, p_hi = _envelope(stat)
+        ax.fill_between(months, p_lo, p_hi, alpha=0.25,
+                        color=COLORS["historical"],
+                        label=f"Historical blocks (n={len(historical_blocks_2d)}, 10-90%)")
+        ax.plot(months, p_mid, "o-", color=COLORS["historical"], linewidth=2,
+                markersize=5, label="Historical block median", zorder=10)
 
-    ax1.plot(months, hist_mean, "o-", color=COLORS["historical"],
-             linewidth=2, markersize=5, label="Historical", zorder=10)
-    ax2.plot(months, hist_std, "o-", color=COLORS["historical"],
-             linewidth=2, markersize=5, label="Historical", zorder=10)
-
+    # Synthetic envelopes
     if len(synthetic_traces_2d) > 5:
-        syn_means = np.array([np.mean(t, axis=0) for t in synthetic_traces_2d])
-        syn_stds = np.array([np.std(t, axis=0, ddof=1) for t in synthetic_traces_2d])
-
+        syn_means = np.array([t.mean(axis=0) for t in synthetic_traces_2d])
+        syn_stds = np.array([t.std(axis=0, ddof=1) for t in synthetic_traces_2d])
         for ax, syn_stat in [(ax1, syn_means), (ax2, syn_stds)]:
-            p10 = np.percentile(syn_stat, 10, axis=0)
-            p50 = np.percentile(syn_stat, 50, axis=0)
-            p90 = np.percentile(syn_stat, 90, axis=0)
-            ax.fill_between(months, p10, p90, alpha=0.2, color=COLORS["empirical"])
-            ax.plot(months, p50, "--", color=COLORS["empirical"],
+            s_lo, s_mid, s_hi = _envelope(syn_stat)
+            ax.fill_between(months, s_lo, s_hi, alpha=0.2,
+                            color=COLORS["empirical"],
+                            label=f"Synthetic (n={len(syn_stat)}, 10-90%)")
+            ax.plot(months, s_mid, "--", color=COLORS["empirical"],
                     linewidth=1.5, label="Synthetic median")
     else:
         for i, trace_2d in enumerate(synthetic_traces_2d):
             lbl = f"Trace {i+1}"
-            ax1.plot(months, np.mean(trace_2d, axis=0), alpha=0.5, linewidth=1, label=lbl)
-            ax2.plot(months, np.std(trace_2d, axis=0, ddof=1), alpha=0.5, linewidth=1)
+            ax1.plot(months, trace_2d.mean(axis=0), alpha=0.5, linewidth=1,
+                     label=lbl)
+            ax2.plot(months, trace_2d.std(axis=0, ddof=1), alpha=0.5,
+                     linewidth=1)
 
     for ax in [ax1, ax2]:
         ax.set_xticks(months)
@@ -235,17 +255,37 @@ def plot_seasonal_cycle_comparison(
     return fig, (ax1, ax2)
 
 
+def _fdc(flows: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Empirical FDC: (exceedance probability, sorted-descending flows)."""
+    sorted_flows = np.sort(flows)[::-1]
+    exceedance = np.arange(1, len(sorted_flows) + 1) / (len(sorted_flows) + 1)
+    return exceedance, sorted_flows
+
+
 def plot_flow_duration_curve(
     synthetic_traces: List[np.ndarray],
-    historical_1d: np.ndarray,
+    historical_blocks_1d: List[np.ndarray],
     figsize: Tuple[float, float] = (8, 5),
+    exceedance_grid: Optional[np.ndarray] = None,
 ) -> Tuple[plt.Figure, plt.Axes]:
-    """Compare flow duration curves of synthetic traces vs historical.
+    """Compare FDC envelopes of synthetic traces vs historical blocks.
+
+    Every synthetic trace and every historical block is converted to an
+    empirical FDC, then interpolated onto a common exceedance grid so
+    that per-exceedance percentiles are directly comparable. The grid
+    spans the smallest resolvable exceedance probability for the block
+    length (``1 / (n_months + 1)``) to just below 1, so tail behavior
+    near 99 %+ exceedance is honestly represented.
 
     Args:
         synthetic_traces: List of 1D monthly flow arrays.
-        historical_1d: Historical monthly flows.
+        historical_blocks_1d: List of historical monthly blocks at the
+            same length as ``synthetic_traces``.
         figsize: Figure size.
+        exceedance_grid: Optional array of exceedance probabilities in
+            (0, 1) for interpolation. Defaults to the full empirical
+            grid of the first synthetic trace (i.e. every honest
+            exceedance slot for a T-year block).
 
     Returns:
         (fig, ax) tuple.
@@ -253,33 +293,41 @@ def plot_flow_duration_curve(
     apply_style()
     fig, ax = plt.subplots(figsize=figsize)
 
-    def fdc(flows):
-        sorted_flows = np.sort(flows)[::-1]
-        exceedance = np.arange(1, len(sorted_flows) + 1) / (len(sorted_flows) + 1)
-        return exceedance, sorted_flows
+    if exceedance_grid is None:
+        # Default to the exact empirical grid of a single T-year block
+        # (no interpolation loss, including 1/(n+1) and n/(n+1)).
+        n = len(synthetic_traces[0])
+        exceedance_grid = np.arange(1, n + 1) / (n + 1)
+    grid = np.asarray(exceedance_grid, dtype=float)
+    grid_pct = grid * 100
 
-    exc_h, flows_h = fdc(historical_1d)
-    ax.semilogy(exc_h * 100, flows_h, color=COLORS["historical"],
-                linewidth=2, label="Historical", zorder=10)
+    def stack_fdc(traces: List[np.ndarray]) -> np.ndarray:
+        stacked = np.empty((len(traces), len(grid)))
+        for i, tr in enumerate(traces):
+            e, f = _fdc(tr)
+            stacked[i] = np.interp(grid, e, f)
+        return stacked
 
+    # Historical block envelope
+    hist_stack = stack_fdc(historical_blocks_1d)
+    h_lo, h_mid, h_hi = _envelope(hist_stack)
+    ax.fill_between(grid_pct, h_lo, h_hi, alpha=0.25, color=COLORS["historical"],
+                    label=f"Historical blocks (n={len(historical_blocks_1d)}, 10-90%)")
+    ax.semilogy(grid_pct, h_mid, color=COLORS["historical"], linewidth=2,
+                label="Historical block median", zorder=10)
+
+    # Synthetic envelope
     if len(synthetic_traces) > 5:
-        # Envelope
-        all_exc = np.linspace(0.01, 0.99, 200)
-        interp_flows = []
-        for trace in synthetic_traces:
-            exc_s, flows_s = fdc(trace)
-            interp_flows.append(np.interp(all_exc, exc_s, flows_s))
-        interp_flows = np.array(interp_flows)
-        p10 = np.percentile(interp_flows, 10, axis=0)
-        p50 = np.percentile(interp_flows, 50, axis=0)
-        p90 = np.percentile(interp_flows, 90, axis=0)
-        ax.fill_between(all_exc * 100, p10, p90, alpha=0.2, color=COLORS["empirical"])
-        ax.semilogy(all_exc * 100, p50, "--", color=COLORS["empirical"],
-                     linewidth=1.5, label="Synthetic median")
+        syn_stack = stack_fdc(synthetic_traces)
+        s_lo, s_mid, s_hi = _envelope(syn_stack)
+        ax.fill_between(grid_pct, s_lo, s_hi, alpha=0.2, color=COLORS["empirical"],
+                        label=f"Synthetic (n={len(synthetic_traces)}, 10-90%)")
+        ax.semilogy(grid_pct, s_mid, "--", color=COLORS["empirical"],
+                    linewidth=1.5, label="Synthetic median")
     else:
-        for i, trace in enumerate(synthetic_traces):
-            exc_s, flows_s = fdc(trace)
-            ax.semilogy(exc_s * 100, flows_s, alpha=0.4, linewidth=0.8)
+        for trace in synthetic_traces:
+            e, f = _fdc(trace)
+            ax.semilogy(e * 100, f, alpha=0.4, linewidth=0.8)
 
     ax.set_xlabel("Exceedance Probability (%)")
     ax.set_ylabel("Flow (cfs)")

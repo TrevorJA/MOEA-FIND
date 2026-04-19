@@ -37,25 +37,6 @@ def manhattan_norm(x: np.ndarray, anti_ideal: np.ndarray) -> float:
     return float(np.sum(np.abs(x - anti_ideal)))
 
 
-def cyclic_l1_distance(a: float, b: float, period: float = 12.0) -> float:
-    """Wrapped L1 distance for cyclic (e.g. month-of-year) features.
-
-    For a cyclic coordinate with period P (e.g. 12 months), the shortest
-    L1 distance between two values is min(|a - b|, P - |a - b|). This
-    preserves the hyperplane identity in the MOEA-FIND L1-simplex theorem
-    (§3.2) because the objective is still a sum of nonnegative terms.
-
-    Args:
-        a, b: Cyclic coordinates in the same unit (e.g. both months).
-        period: Period length. Default 12 for month-of-year.
-
-    Returns:
-        Wrapped distance in [0, period / 2].
-    """
-    d = abs(float(a) - float(b))
-    return float(min(d, period - d))
-
-
 def cyclic_mean(values: np.ndarray, period: float = 12.0) -> float:
     """Arithmetic mean of a cyclic coordinate via sin/cos embedding.
 
@@ -387,9 +368,12 @@ def compute_drought_characteristics(
     }
 
 
-#: Drought characteristic names whose natural metric is a cyclic calendar
-#: month (1..12). The MOEA-FIND L1-simplex theorem supports cyclic axes
-#: through the wrapped distance cyclic_l1_distance (§3.3 of the manuscript).
+#: Drought characteristic names whose natural metric is a calendar month
+#: (1..12). Used by :func:`src.experiment_utils.compute_ssi_anti_ideal`
+#: to place ``D*`` for these keys **outside** the feasible calendar
+#: range (``12 × headroom`` rather than ``1.5 × max_hist``), which keeps
+#: the DD-11 assumption ``D_j <= D*_j`` intact and therefore preserves
+#: the hyperplane identity in :func:`drought_objectives`.
 CYCLIC_MONTH_KEYS = frozenset({
     "peak_severity_month",
     "onset_month",
@@ -400,75 +384,68 @@ def drought_objectives(
     synthetic_chars: dict,
     anti_ideal: np.ndarray,
     objective_keys: tuple = ("mean_duration", "mean_avg_severity"),
-    target: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """Compute MOEA-FIND objectives from drought characteristics.
+    """MOEA-FIND L1 Device — the authoritative DD-11 formulation.
 
-    Produces the (k+1)-objective vector used by Borg MOEA:
+    See ``manuscript/design_decisions.md §DD-11`` for the full derivation.
+    This function is the load-bearing piece of the MOEA-FIND method; do
+    not introduce alternative formulations here.
 
-        f_j(x) = |D_j(x) - D*_j|              for j = 1..k
-        f_{k+1}(x) = sum_j f_j(x)             (L1 Manhattan norm)
+    Produces the (K+1)-objective vector Borg minimises:
 
-    For any objective whose name appears in :data:`CYCLIC_MONTH_KEYS`,
-    the per-component distance |D_j - D*_j| is replaced by the wrapped
-    cyclic L1 distance with period 12 months. This preserves the
-    L1-simplex theorem because the objective is still a sum of
-    nonnegative absolute-value terms.
+        f_j(x)     = D_j(x)                    for j = 1..K
+        f_{K+1}(x) = ||D(x) - D*||_1           (Manhattan L1 distance)
 
-    The function supports two target conventions for backwards
-    compatibility:
+    where ``D*`` is the anti-ideal point placed **outside the feasible
+    region** by :func:`src.experiment_utils.compute_ssi_anti_ideal`
+    (``1.5 × max_hist`` for non-cyclic metrics, ``12 × headroom`` for
+    cyclic-month metrics so that ``D_j <= D*_j`` for every feasible
+    point).
 
-    - If ``target`` is None, the historical anti-ideal pattern is used:
-      f_j = D_j (i.e. the raw metric value). The simplex identity still
-      holds with J_{k+1} = sum_j |D_j - 0|. This matches the pre-2026-04
-      behavior of the MOEA-FIND Phase 1 experiments.
-    - If ``target`` is supplied, it is treated as the user-specified
-      drought characteristic target D* and f_j = d(D_j, D*_j), where d
-      is the cyclic L1 distance for cyclic axes and the absolute-value
-      distance otherwise. This is the convention described in §3 of
-      the manuscript.
+    Under the ``D_j <= D*_j`` assumption the hyperplane identity
+    ``sum_{j=1}^{K+1} f_j = sum_j D*_j`` is constant across the feasible
+    set, so every feasible point is Pareto non-dominated: a decrease in
+    any ``f_j`` (smaller ``D_j``) is exactly offset by an increase in
+    ``f_{K+1}`` (farther from ``D*``). The feasible set maps injectively
+    onto a hyperplane in (K+1)-objective space, and Borg's epsilon-box
+    archive tiles that hyperplane — delivering interior coverage in
+    drought-characteristic space.
+
+    .. warning::
+       Do **not** change ``f_j`` to ``|D_j - D*_j|``. That reformulation
+       makes ``f_{K+1}`` linearly redundant with the first K objectives
+       and collapses the Pareto front to the feasible point closest to
+       ``D*``. DD-11 calls this reading "degenerate" and rejects it.
 
     Args:
-        synthetic_chars: Drought characteristics of synthetic trace, e.g.
-            from :func:`compute_ssi_drought_characteristics`.
-        anti_ideal: Anti-ideal point in metric space; used for the
-            target=None path and to set dimensionality. (k-dim.)
-        objective_keys: Which characteristics to use as objectives.
-        target: Optional drought characteristic target D* in the same
-            order as ``objective_keys``. If provided, all f_j become
-            cyclic-aware absolute deviations from D*_j.
+        synthetic_chars: Drought characteristics dict from
+            :func:`compute_ssi_drought_characteristics`.
+        anti_ideal: Anti-ideal point ``D*`` (K-dim). Must satisfy
+            ``D_j <= D*_j`` for every feasible ``D``; produced by
+            :func:`src.experiment_utils.compute_ssi_anti_ideal`.
+        objective_keys: Drought characteristic names used as the first
+            K objectives. Order determines the objective vector layout.
 
     Returns:
-        Objective vector (k+1 dimensional). Element k is the L1 sum of
-        elements 0..k-1 (the Manhattan-norm auxiliary objective).
+        Array of length ``K+1``. The first ``K`` entries are the raw
+        drought characteristics ``D_j``; the last entry is the Manhattan
+        distance ``||D - D*||_1``.
     """
+    target = np.asarray(anti_ideal, dtype=float)
     k = len(objective_keys)
+    if target.shape != (k,):
+        raise ValueError(
+            f"anti_ideal must be length {k} to match objective_keys, "
+            f"got shape {target.shape}"
+        )
+
     metrics = np.zeros(k)
     for i, key in enumerate(objective_keys):
-        metrics[i] = synthetic_chars.get(key, 0.0)
-
-    if target is None:
-        # Legacy path: f_j = D_j, Manhattan norm from anti_ideal.
-        objs = np.empty(k + 1)
-        objs[:k] = metrics
-        objs[k] = manhattan_norm(metrics, anti_ideal)
-        return objs
-
-    # Target-aware path with cyclic-aware per-component distance.
-    target = np.asarray(target, dtype=float)
-    assert target.shape == (k,), \
-        f"target must be length {k}, got {target.shape}"
-
-    deviations = np.zeros(k)
-    for i, key in enumerate(objective_keys):
-        if key in CYCLIC_MONTH_KEYS:
-            deviations[i] = cyclic_l1_distance(metrics[i], target[i], period=12.0)
-        else:
-            deviations[i] = abs(metrics[i] - target[i])
+        metrics[i] = float(synthetic_chars.get(key, 0.0))
 
     objs = np.empty(k + 1)
-    objs[:k] = deviations
-    objs[k] = float(np.sum(deviations))  # L1 simplex identity by construction
+    objs[:k] = metrics
+    objs[k] = manhattan_norm(metrics, target)
     return objs
 
 

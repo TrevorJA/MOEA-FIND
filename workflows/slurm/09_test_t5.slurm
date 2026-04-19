@@ -1,43 +1,46 @@
 #!/bin/bash
-#SBATCH --job-name=moea_09_reeval
+#SBATCH --job-name=moea_09_t20
 #SBATCH --output=workflows/slurm/slurm_logs/%x_%j.out
 #SBATCH --error=workflows/slurm/slurm_logs/%x_%j.err
-#SBATCH --nodes=1
-#SBATCH --ntasks=16
+#SBATCH --nodes=3
+#SBATCH --ntasks-per-node=40
 #SBATCH --mem=64G
 #SBATCH --time=12:00:00
 #SBATCH --account=tja73
 #SBATCH --partition=normal
-# Manuscript: Fig 9 — Scenario discovery in drought characteristic space
-# Experiment: 09 — MOEA-FIND Pareto → Pywr-DRB → FFMP Level 6 → satisficing
-# Parallelism: MPI for Stages 2-3 (preprocessing + simulation); serial for 1 & 4
+# Script 09: Policy re-evaluation with T=20 Pareto front.
+# 3 nodes × 40 tasks = 120 MPI ranks for Stages 2-3.
 #
-# Usage:
-#   sbatch workflows/slurm/09_drb_policy_reeval.slurm <path/to/results.json>
-#
-# Example:
-#   sbatch workflows/slurm/09_drb_policy_reeval.slurm \
-#       outputs/exp04_kirsch_single_site/residual_T20_nfe500000_s42_constrained/results.json
+# Submit with dependency on Script 04 job:
+#   sbatch --dependency=afterok:<SCRIPT04_JOBID> workflows/slurm/09_test_t5.slurm
 
-# shellcheck source=./_common.sh
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-PARETO_RESULTS="${1:?Usage: sbatch 09_drb_policy_reeval.slurm <path/to/results.json>}"
-N_PROCS="${SLURM_NTASKS:-16}"
+PARETO_RESULTS="outputs/exp04_kirsch_single_site/residual_T20_nfe2000000_s42_constrained/results.json"
+N_PROCS=$((SLURM_NNODES * SLURM_NTASKS_PER_NODE))
 
-echo "[09.slurm] Pareto results: ${PARETO_RESULTS}"
-echo "[09.slurm] Processors: ${N_PROCS}"
-echo "[09.slurm] Start: $(date)"
+echo "[09] Pareto results: ${PARETO_RESULTS}"
+echo "[09] Nodes: ${SLURM_NNODES}, Tasks/node: ${SLURM_NTASKS_PER_NODE}, Total: ${N_PROCS}"
+echo "[09] Start: $(date)"
+
+# Verify input exists
+if [ ! -f "${PARETO_RESULTS}" ]; then
+    echo "[09] ERROR: ${PARETO_RESULTS} not found. Script 04 may not have completed."
+    exit 1
+fi
 
 # Stage 1 (generate): serial — fits generators, replays DVs
+echo "[09] === STAGE 1: GENERATE ==="
 python "${SLURM_SUBMIT_DIR}/workflows/experiments/09_drb_policy_reeval.py" \
     --pareto-results "${PARETO_RESULTS}" \
     --stage generate \
     --n-years 20 \
-    --demand-source constant_max
+    --mode residual \
+    --seed 42
 
-# Stages 2-3 (prep + simulate): MPI-parallel
+# Stage 2 (prep): MPI-parallel predicted inflow preprocessing
+echo "[09] === STAGE 2: PREP (MPI) ==="
 mpirun --oversubscribe -np "${N_PROCS}" \
     --mca oob_tcp_if_include ib0 \
     --mca btl_tcp_if_include ib0 \
@@ -45,9 +48,12 @@ mpirun --oversubscribe -np "${N_PROCS}" \
         --pareto-results "${PARETO_RESULTS}" \
         --stage prep \
         --n-years 20 \
-        --demand-source constant_max \
+        --mode residual \
+        --seed 42 \
         --use-mpi
 
+# Stage 3 (simulate): MPI-parallel Pywr-DRB batches
+echo "[09] === STAGE 3: SIMULATE (MPI) ==="
 mpirun --oversubscribe -np "${N_PROCS}" \
     --mca oob_tcp_if_include ib0 \
     --mca btl_tcp_if_include ib0 \
@@ -55,15 +61,20 @@ mpirun --oversubscribe -np "${N_PROCS}" \
         --pareto-results "${PARETO_RESULTS}" \
         --stage simulate \
         --n-years 20 \
+        --mode residual \
+        --seed 42 \
         --demand-source constant_max \
         --batch-size 10 \
         --use-mpi
 
-# Stage 4 (classify): serial — extracts levels, plots
+# Stage 4 (classify): serial — extract FFMP levels, scenario discovery
+echo "[09] === STAGE 4: CLASSIFY ==="
 python "${SLURM_SUBMIT_DIR}/workflows/experiments/09_drb_policy_reeval.py" \
     --pareto-results "${PARETO_RESULTS}" \
     --stage classify \
     --n-years 20 \
+    --mode residual \
+    --seed 42 \
     --plot
 
-echo "[09.slurm] End: $(date)"
+echo "[09] End: $(date)"

@@ -38,6 +38,7 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.experiment_config import DEFAULT_EXPERIMENT  # noqa: E402
 from src.experiment_utils import (  # noqa: E402
     prepare_data,
     compute_historical_ssi_chars,
@@ -94,21 +95,26 @@ def _load_constraints(
 
 
 def main():
+    cfg = DEFAULT_EXPERIMENT
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--nfe", type=int, default=20_000)
-    p.add_argument("--n-years", type=int, default=20)
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--ssi", type=int, default=3, choices=[1, 3, 6, 12])
-    p.add_argument("--mode", choices=["index", "residual"], default="residual")
-    p.add_argument("--algorithm", default="eps_nsga2",
+    # CLI args default to the centralized ExperimentConfig. Edit
+    # src/experiment_config.py to change baseline behavior; override
+    # per-run with the flags below.
+    p.add_argument("--nfe", type=int, default=cfg.nfe)
+    p.add_argument("--n-years", type=int, default=cfg.n_years_out)
+    p.add_argument("--seed", type=int, default=cfg.seed)
+    p.add_argument("--ssi", type=int, default=cfg.ssi_timescale,
+                   choices=[1, 3, 6, 12])
+    p.add_argument("--mode", choices=["index", "residual"], default=cfg.dv_mode)
+    p.add_argument("--algorithm", default=cfg.algorithm,
                    choices=["borg_mm", "borg_serial", "eps_nsga2"],
                    help="MOEA backend. Overridden by MOEA_FIND_ALGORITHM env var.")
-    p.add_argument("--constraints-json", type=Path, default=None,
+    p.add_argument("--constraints-json", type=Path, default=cfg.constraints_json,
                    help="Path to calibrated_tolerances.json from Block A.")
-    p.add_argument("--site-label", default="cannonsville")
-    p.add_argument("--n-islands", type=int, default=1,
+    p.add_argument("--site-label", default=cfg.site_label)
+    p.add_argument("--n-islands", type=int, default=cfg.n_islands,
                    help="Number of islands for MM Borg.")
-    p.add_argument("--checkpoint-freq", type=int, default=10000)
+    p.add_argument("--checkpoint-freq", type=int, default=cfg.checkpoint_freq)
     p.add_argument("--old-checkpoint", type=Path, default=None,
                    help="Path to a checkpoint file to resume from.")
     p.add_argument("--plot", action="store_true")
@@ -140,14 +146,20 @@ def main():
     monthly_2d, monthly_1d = prepare_data(cache_dir)
 
     # --- SSI characterisation ---
-    objective_keys = ("mean_duration", "mean_avg_severity")
+    objective_keys = cfg.objective_keys
     ssi_hist, ssi_calc, hist_chars = compute_historical_ssi_chars(
         monthly_1d, args.ssi
     )
-    anti_ideal = compute_ssi_anti_ideal(hist_chars, objective_keys)
+    anti_ideal = compute_ssi_anti_ideal(
+        hist_chars,
+        objective_keys,
+        headroom=cfg.anti_ideal_headroom,
+    )
     print(f"[04] historical SSI-{args.ssi}: n={hist_chars['n_events']}, "
           f"dur={hist_chars['mean_duration']:.1f}mo, "
-          f"severity={hist_chars['mean_avg_severity']:.3f}")
+          f"severity={hist_chars['mean_avg_severity']:.3f}, "
+          f"peak_month={hist_chars.get('peak_severity_month', 0):.1f}")
+    print(f"[04] objectives: {objective_keys}")
     print(f"[04] anti-ideal: {anti_ideal}")
 
     # --- Generator ---
@@ -197,14 +209,16 @@ def main():
         **algo_kwargs,
     )
 
-    (out / "results.json").write_text(
-        json.dumps(result, indent=2, default=str)
-    )
     print(f"[04] Pareto: {result.get('n_pareto', 0)} solutions")
-    print(f"     wrote {out / 'results.json'}")
 
-    # Save pareto.npz for downstream scripts (e.g., 10_plot_manuscript_figures)
+    # Under MM Borg MPI, only the master rank has Pareto solutions.
+    # Workers report 0 and must NOT overwrite the master's output files.
     if result.get("n_pareto", 0) > 0:
+        (out / "results.json").write_text(
+            json.dumps(result, indent=2, default=str)
+        )
+        print(f"     wrote {out / 'results.json'}")
+
         np.savez(
             out / "pareto.npz",
             dvs=np.array(result["pareto_dvs"]),
@@ -213,7 +227,8 @@ def main():
         print(f"     wrote {out / 'pareto.npz'}")
     else:
         print(f"[04] WARNING: 0 Pareto solutions with {args.nfe} NFE "
-              f"and {generator.n_dvs} DVs. Skipping pareto.npz and plots.")
+              f"and {generator.n_dvs} DVs. Skipping output writes "
+              f"(worker rank under MM Borg MPI, or no solutions found).")
 
     # --- Plots (saved to variant directory, not global figures/) ---
     if args.plot:
@@ -221,7 +236,10 @@ def main():
             import matplotlib
             matplotlib.use("Agg")
             import matplotlib.pyplot as plt
-            from src.plotting.drought_space import plot_scatter_with_marginals
+            from src.plotting.drought_space import (
+                plot_scatter_with_marginals,
+                plot_drought_space_3d,
+            )
             from src.plotting.trace_diagnostics import (
                 plot_autocorrelation_comparison,
                 plot_flow_duration_curve,
@@ -238,11 +256,28 @@ def main():
                     float(hist_chars["mean_duration"]),
                     float(hist_chars["mean_avg_severity"]),
                 )
+                # Compute per-block historical drought characteristics
+                # using the SAME prefitted SSI calculator the MOEA used,
+                # so the historical cloud is directly comparable to the
+                # Pareto archive in drought-characteristic space.
+                from src.historical_blocks import compute_historical_block_chars
+                hist_block_chars = compute_historical_block_chars(
+                    monthly_1d,
+                    T_years=args.n_years,
+                    ssi_calc=ssi_calc,
+                    objective_keys=objective_keys,
+                    stride=1,
+                )
+                print(f"[04] historical block drought-chars: "
+                      f"{hist_block_chars.shape[0]} blocks, "
+                      f"mean_duration [{hist_block_chars[:, 0].min():.2f}, "
+                      f"{hist_block_chars[:, 0].max():.2f}]")
                 fig_a = plot_scatter_with_marginals(
-                    dm,
-                    title=f"Kirsch ({args.mode}) Pareto",
+                    dm[:, :2],
+                    title=f"Kirsch ({args.mode}) Pareto vs historical blocks",
                     historical_point=hist_point,
-                    anti_ideal=anti_ideal,
+                    anti_ideal=anti_ideal[:2],
+                    historical_cloud=hist_block_chars[:, :2],
                     objective_labels=(
                         "Mean duration (months)",
                         "Mean avg. severity",
@@ -252,26 +287,70 @@ def main():
                 plt.close(fig_a)
                 print(f"[04] wrote {fig_dir / 'fig05_drought_space.pdf'}")
 
+                # Stash the block chars for downstream / 3D plotting.
+                np.savez(out / "historical_block_chars.npz",
+                         chars=hist_block_chars,
+                         objective_keys=np.array(list(objective_keys)))
+
+                # 3D drought-space scatter (if three objectives were used).
+                if dm.shape[1] >= 3 and len(objective_keys) >= 3:
+                    hist_point_3d = np.array([
+                        float(hist_chars.get(k, 0.0)) for k in objective_keys[:3]
+                    ])
+                    fig_3d = plot_drought_space_3d(
+                        dm[:, :3],
+                        anti_ideal=anti_ideal[:3],
+                        objective_labels=tuple(objective_keys[:3]),
+                        historical_point=hist_point_3d,
+                        historical_cloud=hist_block_chars[:, :3],
+                        title=(
+                            f"Kirsch ({args.mode}) Pareto — "
+                            f"NFE={args.nfe}, n={dm.shape[0]}"
+                        ),
+                    )
+                    fig_3d.savefig(fig_dir / "fig05_drought_space_3d.pdf", dpi=200,
+                                    bbox_inches="tight")
+                    fig_3d.savefig(fig_dir / "fig05_drought_space_3d.png", dpi=200,
+                                    bbox_inches="tight")
+                    plt.close(fig_3d)
+                    print(f"[04] wrote {fig_dir / 'fig05_drought_space_3d.pdf'}")
+
             pareto_traces_1d = result.get("pareto_traces_1d", [])
             pareto_traces_2d = result.get("pareto_traces_2d", [])
             if pareto_traces_1d:
                 traces_1d = [np.array(t) for t in pareto_traces_1d]
                 traces_2d = [np.array(t) for t in pareto_traces_2d]
 
+                # Build historical block ensemble at the same length as
+                # the synthetic traces. This is the fair comparator for
+                # FDC/ACF/seasonal diagnostics.
+                from src.historical_blocks import (
+                    resample_historical_blocks,
+                    resample_historical_blocks_2d,
+                )
+                hist_blocks_1d = resample_historical_blocks(
+                    monthly_1d, T_years=args.n_years, stride=1,
+                )
+                hist_blocks_2d = resample_historical_blocks_2d(
+                    monthly_2d, T_years=args.n_years, stride=1,
+                )
+                print(f"[04] historical blocks: "
+                      f"{len(hist_blocks_1d)} overlapping {args.n_years}-yr blocks")
+
                 fig_acf, _ = plot_autocorrelation_comparison(
-                    traces_1d, monthly_1d,
+                    traces_1d, hist_blocks_1d,
                 )
                 fig_acf.savefig(fig_dir / "fig06a_acf.pdf", dpi=300)
                 plt.close(fig_acf)
 
                 fig_fdc, _ = plot_flow_duration_curve(
-                    traces_1d, monthly_1d,
+                    traces_1d, hist_blocks_1d,
                 )
                 fig_fdc.savefig(fig_dir / "fig06b_fdc.pdf", dpi=300)
                 plt.close(fig_fdc)
 
                 fig_sc, _ = plot_seasonal_cycle_comparison(
-                    traces_2d, monthly_2d,
+                    traces_2d, hist_blocks_2d,
                 )
                 fig_sc.savefig(fig_dir / "fig06c_seasonal.pdf", dpi=300)
                 plt.close(fig_sc)

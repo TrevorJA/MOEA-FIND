@@ -35,6 +35,7 @@ Run:
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 from typing import Callable, Dict
@@ -53,6 +54,8 @@ sys.modules.setdefault("synhydro.droughts.ssi", _stub.droughts.ssi)
 
 import matplotlib.pyplot as plt  # noqa: E402
 
+from src.experiment_config import DEFAULT_EXPERIMENT  # noqa: E402
+from src.experiment_utils import make_variant_slug  # noqa: E402
 from src.plotting.analytic import (  # noqa: E402
     fig1_param_vs_hazard_space,
     fig3_manhattan_construction,
@@ -63,6 +66,21 @@ from src.plotting.analytic import (  # noqa: E402
 OUTPUTS = PROJECT_ROOT / "outputs"
 FIGURES = PROJECT_ROOT / "figures"
 DIAG_ROOT = OUTPUTS / "diag_shell_vs_interior"
+
+# Module-level EXP04 variant dir — resolved at main() time from
+# DEFAULT_EXPERIMENT + a CLI-overridable NFE. Set by main() before the
+# factories run.
+_CFG = DEFAULT_EXPERIMENT
+EXP04_DIR: Path = (
+    OUTPUTS / "exp04_kirsch_single_site"
+    / make_variant_slug(
+        mode=_CFG.dv_mode, n_years=_CFG.n_years_out, nfe=_CFG.nfe,
+        seed=_CFG.seed, constrained=_CFG.constraints_json is not None,
+    )
+)
+EXP11_FIG = (
+    OUTPUTS / "exp11_baseline_comparison" / "figures" / "fig07_scatter_comparison.pdf"
+)
 
 
 def _save(fig, path: Path) -> None:
@@ -170,56 +188,87 @@ def fig02_pipeline() -> bool:
 
 
 # =============================================================================
-# HPC-blocked: figures 5, 6, 7
+# Manuscript figures 5, 6, 7 — sourced from exp04 / exp11 run outputs
 # =============================================================================
+#
+# fig05 and fig06 are thin re-packagers: they copy per-variant PDFs
+# produced by the exp04 and exp11 drivers into the top-level ``figures/``
+# directory with manuscript-ordered names. No new plotting is done here;
+# if the upstream PDFs are missing the factory returns False with a
+# helpful SKIP reason. fig07 (gradient-boosted tree scenario discovery)
+# is still out of scope for this pass and returns a SKIP.
+
+# File rename map for fig05: (src basename in EXP04_DIR/figures, dst
+# basename under figures/). Keep the diagnostic content recognisable.
+_FIG05_COPIES = (
+    ("fig05_drought_space.pdf", "fig05_drought_space.pdf"),
+    ("fig06a_acf.pdf",          "fig05_acf.pdf"),
+    ("fig06b_fdc.pdf",          "fig05_fdc.pdf"),
+    ("fig06c_seasonal.pdf",     "fig05_seasonal.pdf"),
+)
+
+
+def _copy(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dst)
+    print(f"  wrote {dst.relative_to(PROJECT_ROOT)} "
+          f"(from {src.relative_to(PROJECT_ROOT)})")
+
+
 def fig05_cannonsville_hydrology() -> bool:
-    """Figure 5 (§3.2) - Cannonsville hydrology demonstration. PENDING Phase beta."""
-    archive = OUTPUTS / "exp04_kirsch_single_site" / "residual" / "pareto.npz"
-    if not archive.exists():
-        _skip("fig05", "PENDING Phase beta (single-site Cannonsville)")
+    """Figure 5 (§3.2) — Cannonsville hydrology demonstration panels.
+
+    Thin re-packager: copies the four diagnostic PDFs produced by
+    :mod:`workflows.experiments.04_kirsch_single_site` (drought-space
+    scatter, ACF, FDC, seasonal cycle) into ``figures/`` with
+    ``fig05_*`` names.
+    """
+    src_dir = EXP04_DIR / "figures"
+    if not src_dir.is_dir():
+        _skip("fig05", f"missing {src_dir.relative_to(PROJECT_ROOT)} "
+                        "(run exp04 for the configured variant first)")
         return False
-    raise NotImplementedError(
-        "fig05 Cannonsville hydrology assembler pending Phase beta wiring"
-    )
+    available = [(src, dst) for src, dst in _FIG05_COPIES
+                 if (src_dir / src).exists()]
+    if not available:
+        _skip("fig05", f"no per-variant PDFs found under "
+                        f"{src_dir.relative_to(PROJECT_ROOT)}")
+        return False
+    for src, dst in available:
+        _copy(src_dir / src, FIGURES / dst)
+    if len(available) < len(_FIG05_COPIES):
+        missing = [src for src, _ in _FIG05_COPIES if (src_dir / src).exists() is False]
+        print(f"  note: {len(missing)} expected fig05_* panel(s) missing: {missing}")
+    return True
 
 
 def fig06_cannonsville_pareto() -> bool:
-    """Figure 6 (§3.2) - Cannonsville Pareto archive in hazard space. PENDING Phases beta and gamma."""
-    need = [
-        OUTPUTS / "exp04_kirsch_single_site" / "residual" / "pareto.npz",
-        OUTPUTS / "exp05_kirsch_library" / "characteristics.json",
-    ]
-    missing = [p for p in need if not p.exists()]
-    if missing:
-        _skip("fig06", "PENDING Phases beta and gamma "
-              f"({len(missing)} upstream file(s) missing)")
+    """Figure 6 (§3.2) — Cannonsville Pareto archive in drought-characteristic
+    space, rendered against the Kirsch random ensemble.
+
+    Thin re-packager: copies the scatter panel produced by
+    :mod:`workflows.experiments.11_baseline_comparison` into
+    ``figures/fig06_cannonsville_pareto.pdf``. exp11 must have been run
+    against the current exp04 Pareto for this to exist.
+    """
+    if not EXP11_FIG.exists():
+        _skip("fig06", f"missing {EXP11_FIG.relative_to(PROJECT_ROOT)} "
+                        "(run exp11 against the current Pareto first)")
         return False
-    raise NotImplementedError(
-        "fig06 Pareto archive assembler pending Phases beta and gamma wiring"
-    )
+    _copy(EXP11_FIG, FIGURES / "fig06_cannonsville_pareto.pdf")
+    return True
 
 
 def fig07_gbt_hazard_discovery() -> bool:
-    """Figure 7 (§3.3) - hazard-space scenario discovery with gradient boosted trees.
+    """Figure 7 (§3.3) — gradient-boosted-tree scenario discovery.
 
-    PENDING Phases beta and gamma. Trains a gradient boosted tree classifier
-    (xgboost or scikit-learn GradientBoostingClassifier) on (a) the MOEA-FIND
-    Pareto archive and (b) an equal-size LHS subsample of the 10k Kirsch
-    library, reporting out-of-sample ROC AUC, Brier score, partial dependence
-    decision boundary in the (D1, D2) plane, and feature importance.
+    Out of scope for this pass. The assembler would train a classifier on
+    the MOEA-FIND Pareto archive plus an equal-size LHS subsample of the
+    Kirsch library, reporting out-of-sample ROC AUC, Brier score, and a
+    partial-dependence decision boundary in the (D1, D2) plane.
     """
-    need = [
-        OUTPUTS / "exp04_kirsch_single_site" / "residual" / "pareto.npz",
-        OUTPUTS / "exp05_kirsch_library" / "characteristics.json",
-    ]
-    missing = [p for p in need if not p.exists()]
-    if missing:
-        _skip("fig07", "PENDING Phases beta and gamma "
-              f"({len(missing)} upstream file(s) missing)")
-        return False
-    raise NotImplementedError(
-        "fig07 gradient boosted tree hazard-space assembler pending Phases beta and gamma wiring"
-    )
+    _skip("fig07", "out of scope for this pass (GBT scenario discovery)")
+    return False
 
 
 # =============================================================================
@@ -269,10 +318,37 @@ FACTORIES: Dict[str, Callable[[], bool]] = {
 
 
 def main():
+    global EXP04_DIR
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--only", nargs="+", choices=sorted(FACTORIES.keys()),
                    help="Restrict to a subset of figures.")
+    p.add_argument(
+        "--exp04-nfe", type=int, default=_CFG.nfe,
+        help="NFE of the exp04 variant whose outputs feed fig05. "
+             "Defaults to DEFAULT_EXPERIMENT.nfe "
+             f"(currently {_CFG.nfe}).",
+    )
+    p.add_argument(
+        "--exp04-variant", type=str, default=None,
+        help="Full variant slug (overrides --exp04-nfe). E.g. "
+             "'residual_T20_nfe500000_s42_constrained'.",
+    )
     args = p.parse_args()
+
+    # Resolve the exp04 variant directory from CLI overrides.
+    if args.exp04_variant is not None:
+        slug = args.exp04_variant
+    else:
+        slug = make_variant_slug(
+            mode=_CFG.dv_mode,
+            n_years=_CFG.n_years_out,
+            nfe=args.exp04_nfe,
+            seed=_CFG.seed,
+            constrained=_CFG.constraints_json is not None,
+        )
+    EXP04_DIR = OUTPUTS / "exp04_kirsch_single_site" / slug
+    print(f"[10] exp04 variant: {slug}")
+    print(f"[10] exp04 dir:     {EXP04_DIR.relative_to(PROJECT_ROOT)}")
 
     keys = args.only or list(FACTORIES.keys())
     print(f"[10] assembling manuscript figures: {', '.join(keys)}")
