@@ -35,8 +35,10 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import List
 
 import numpy as np
+import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -66,7 +68,17 @@ from src.scenario_discovery import (  # noqa: E402
     extract_drought_levels,
     build_satisficing_table,
     plot_satisficing_map,
+    plot_satisficing_map_multi,
     save_results,
+)
+from src.satisficing_metrics import (  # noqa: E402
+    compute_metric_bank,
+    write_metric_bank,
+)
+from src.satisficing_labels import (  # noqa: E402
+    apply_labels,
+    load_manifest,
+    sweep_manifest,
 )
 
 OUTPUT_SLUG = "exp09_drb_policy_reeval"
@@ -113,6 +125,21 @@ def main():
                    help="Generate scenario discovery figure.")
     p.add_argument("--output-dir", type=Path,
                    default=PROJECT_ROOT / "outputs" / OUTPUT_SLUG)
+    p.add_argument("--realization-subset-file", type=Path, default=None,
+                   help="Optional JSON listing a subset of realization indices "
+                        "(integer list) to process. Used for dev-ensemble smoke "
+                        "tests — the production run omits this flag and "
+                        "processes all Pareto solutions.")
+    p.add_argument("--manifest", type=Path, default=None,
+                   help="Optional satisficing manifest (YAML) to sweep during "
+                        "Stage 4. Omit for the legacy FFMP-Level-6 classifier "
+                        "only.")
+    p.add_argument("--classifier-models", nargs="+",
+                   default=["gbt", "logreg"],
+                   choices=["gbt", "logreg"],
+                   help="Classifiers to fit per manifest definition. Produces "
+                        "one set of artifacts and one fig09 per model. "
+                        "Default: both.")
     args = p.parse_args()
 
     # --- Load Pareto results from Script 04 ---
@@ -164,6 +191,36 @@ def main():
     fig_dir = out / "figures"
 
     flow_type = f"moea_find_{slug}"
+
+    # Apply --realization-subset-file if present. The subset file holds
+    # *global* Pareto indices; we slice the archive down to the selected
+    # rows, then re-number to *local* indices 0..N-1 for every Pywr-DRB-
+    # facing data structure. ``replay_pareto_to_multisite_monthly`` writes
+    # the catchment-inflow HDF5 with keys 0..N-1 (enumerate order), so
+    # ``realization_ids`` consumed by the preprocessors must match that
+    # local numbering. The global indices are preserved in config.json
+    # for traceability back to script 04's Pareto ordering.
+    global_pareto_indices: List[int]
+    if args.realization_subset_file is not None:
+        subset_path = Path(args.realization_subset_file)
+        subset_idx = json.loads(subset_path.read_text())
+        subset_idx = [int(i) for i in subset_idx]
+        if any(i < 0 or i >= n_pareto for i in subset_idx):
+            raise SystemExit(
+                f"[09] realization subset contains out-of-range indices "
+                f"(n_pareto={n_pareto}): {subset_idx}"
+            )
+        pareto_dvs = pareto_dvs[subset_idx]
+        pareto_chars = [pareto_chars[i] for i in subset_idx] if pareto_chars else []
+        drought_metrics = drought_metrics[subset_idx] if drought_metrics.size else drought_metrics
+        global_pareto_indices = subset_idx
+        n_pareto = len(subset_idx)
+        print(f"[09] realization subset: {n_pareto} members from {subset_path} "
+              f"(global Pareto indices {subset_idx})")
+    else:
+        global_pareto_indices = list(range(n_pareto))
+
+    # Local indices 0..N-1 — what pywrdrb preprocessors + simulators see.
     realization_ids = [str(i) for i in range(n_pareto)]
 
     # --- Config dump ---
@@ -183,6 +240,7 @@ def main():
         "batch_size": args.batch_size,
         "objective_keys": list(objective_keys),
         "constrained": constrained,
+        "global_pareto_indices": global_pareto_indices,
     }
     (out / "config.json").write_text(json.dumps(config, indent=2))
     print(f"[09] variant: {slug}")
@@ -269,6 +327,7 @@ def main():
         prep_predicted_inflows(
             flow_type, pywrdrb_inputs, realization_ids,
             use_mpi=args.use_mpi,
+            demand_source=args.demand_source,
         )
 
         elapsed = time.time() - t0
@@ -302,7 +361,7 @@ def main():
         print(f"[09] Stage 3 complete in {elapsed:.1f}s")
 
     # ===============================================================
-    # Stage 4: CLASSIFY — scenario discovery
+    # Stage 4: CLASSIFY — metric bank + legacy FFMP map + manifest sweep
     # ===============================================================
     if args.stage in ("all", "classify"):
         t0 = time.time()
@@ -310,42 +369,120 @@ def main():
         print(f"[09] STAGE 4: CLASSIFY")
         print(f"{'='*60}")
 
-        # Extract drought levels
-        drought_levels = extract_drought_levels(sim_dir, realization_ids)
+        results_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build satisficing table
+        # Locate the combined Pywr-DRB output (produced by Stage 3)
+        combined_hdf5 = sim_dir / "pywrdrb_output.hdf5"
+        if not combined_hdf5.exists():
+            # Tolerate running Stage 4 separately by scanning for
+            # rank/batch leftovers as a fallback.
+            candidates = sorted(sim_dir.glob("*.hdf5"))
+            if candidates:
+                combined_hdf5 = candidates[0]
+                print(f"[09] combined output not found; falling back to "
+                      f"{combined_hdf5}")
+            else:
+                raise FileNotFoundError(
+                    f"No Pywr-DRB output HDF5 found under {sim_dir}"
+                )
+
+        # Metric bank — always computed; cheap compared to simulation
+        print(f"[09] computing metric bank from {combined_hdf5}")
+        bank = compute_metric_bank(combined_hdf5, realization_ids)
+        bank_path = results_dir / "metric_bank.parquet"
+        bank_written_to = write_metric_bank(bank, bank_path)
+        print(f"[09] wrote metric bank: {bank_written_to} "
+              f"({len(bank)} realizations, {bank.shape[1]} metrics)")
+
+        # Legacy FFMP-Level-6 binary classifier (back-compat). Uses the
+        # same combined HDF5.
+        drought_levels = extract_drought_levels(sim_dir, realization_ids)
         df = build_satisficing_table(
             drought_levels, pareto_chars, drought_metrics, objective_keys,
         )
-
-        # Save results
         save_results(df, drought_levels, results_dir)
 
-        # Plot
-        if args.plot:
-            # Reconstruct historical chars for annotation
-            hist_chars = None
-            pareto_source_results = results
-            if pareto_source_results.get("pareto_chars"):
-                # Use first Pareto char keys to identify available features
-                sample_chars = pareto_source_results["pareto_chars"][0]
-                if isinstance(sample_chars, dict):
-                    hist_chars = {}
-                    # Try to load from the original Script 04's SSI analysis
-                    for key in objective_keys:
-                        if key in sample_chars:
-                            # Historical value not directly available;
-                            # use the minimum Pareto value as a proxy
-                            hist_chars[key] = float(
-                                drought_metrics[:, list(objective_keys).index(key)].min()
-                            )
+        # Optional manifest sweep. When --manifest is omitted, Stage 4 stops
+        # at the legacy path; downstream analysis can still run script 12
+        # against the metric bank. When --manifest is given, we sweep each
+        # requested classifier model, writing per-model artifacts under
+        # results/{model_name}/ so both fits can coexist on disk.
+        model_summaries: "dict[str, pd.DataFrame]" = {}
+        if args.manifest is not None:
+            manifest = load_manifest(args.manifest)
+            chars_records = [dict(c) for c in pareto_chars]
+            chars_df = pd.DataFrame(chars_records)
+            chars_df.index = [str(r) for r in realization_ids]
+            chars_df.index.name = "realization_id"
+            feature_cols = tuple(objective_keys)
 
-            plot_satisficing_map(
-                df,
-                hist_chars=hist_chars,
-                anti_ideal=anti_ideal,
-                output_path=fig_dir / "fig09_satisficing_map.pdf",
-            )
+            for model_name in args.classifier_models:
+                print(f"[09] sweeping manifest {args.manifest} "
+                      f"with model={model_name}")
+                model_results_dir = results_dir / model_name
+                summary_df = sweep_manifest(
+                    bank_df=bank, chars_df=chars_df, manifest=manifest,
+                    feature_cols=list(feature_cols),
+                    output_dir=model_results_dir,
+                    seed=args.seed,
+                    model_name=model_name,
+                )
+                summary_path = model_results_dir / "classifier_summary.csv"
+                summary_path.parent.mkdir(parents=True, exist_ok=True)
+                summary_df.to_csv(summary_path, index=False)
+                print(f"[09] wrote {summary_path}")
+                model_summaries[model_name] = summary_df
+
+        if args.plot:
+            # No historical reference point on fig09: the previous
+            # implementation collapsed `drought_metrics.min()` across
+            # objectives into a fake "historical" star that was neither
+            # a real solution nor a real observed measurement. Fig06
+            # already shows the true historical-block distribution; a
+            # separate subplot can overlay those blocks against the
+            # satisficing background later if desired.
+            if args.manifest is not None and model_summaries:
+                labels_long = apply_labels(bank, manifest)
+                classifier_labels = {
+                    "gbt": "sklearn GradientBoostingClassifier, default "
+                           "hyperparams, 5-fold stratified CV",
+                    "logreg": "sklearn LogisticRegression with degree-2 "
+                              "polynomial features + StandardScaler, 5-fold "
+                              "stratified CV",
+                }
+                for model_name, summary_df in model_summaries.items():
+                    if summary_df.empty:
+                        continue
+                    plot_satisficing_map_multi(
+                        labels_long=labels_long,
+                        chars_df=chars_df,
+                        manifest=manifest,
+                        classifiers_dir=results_dir / model_name / "classifiers",
+                        feature_cols=list(feature_cols),
+                        anti_ideal=anti_ideal,
+                        classifier_label=classifier_labels.get(
+                            model_name, model_name,
+                        ),
+                        output_path=fig_dir
+                        / f"fig09_satisficing_map_{model_name}.pdf",
+                    )
+
+                # Per-model AUC summary bar chart
+                from src.plotting.satisficing_boundary import plot_manifest_summary
+                for model_name, summary_df in model_summaries.items():
+                    if summary_df.empty:
+                        continue
+                    plot_manifest_summary(
+                        summary_df,
+                        output_path=fig_dir
+                        / f"fig_manifest_summary_{model_name}.pdf",
+                        title=f"Satisficing sweep ({model_name}) — {slug}",
+                    )
+            else:
+                plot_satisficing_map(
+                    df, anti_ideal=anti_ideal,
+                    output_path=fig_dir / "fig09_satisficing_map.pdf",
+                )
 
         elapsed = time.time() - t0
         print(f"[09] Stage 4 complete in {elapsed:.1f}s")

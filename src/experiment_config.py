@@ -152,6 +152,30 @@ class ExperimentConfig:
         )
     )
 
+    # Anti-ideal D* placement. If ``anti_ideal_reference_json`` is set and
+    # exists, its Pareto drought_metrics max is used as the reference_max
+    # for NON-cyclic objectives (multiplied by ``anti_ideal_headroom`` for
+    # the final D*). Cyclic calendar-month metrics always use
+    # ``12 × headroom`` regardless, to preserve the DD-11 hyperplane
+    # identity guarantee ``D_j <= D*_j``. When None (default), D* falls
+    # back to ``historical_max × headroom`` for non-cyclic objectives.
+    anti_ideal_reference_json: Optional[Path] = None
+
+    # DV-space uniformity constraint (ablation arm; see src/constraints_dv.py)
+    # Default constraint_mode is "hydrologic" so every existing run is
+    # unchanged. "dv_uniform" swaps in a single DV-space constraint and
+    # ignores ``constraints_json``. "none" disables all constraints.
+    constraint_mode: str = "hydrologic"
+    dv_uniformity_json: Optional[Path] = field(
+        default_factory=lambda: (
+            PROJECT_ROOT
+            / "outputs"
+            / "diag_dv_uniformity_calibration"
+            / "calibrated_dv_tolerances.json"
+        )
+    )
+    dv_uniformity_statistic: str = "l2_star"
+
     # Site
     site_label: str = "cannonsville"
 

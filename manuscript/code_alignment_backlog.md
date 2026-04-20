@@ -4,6 +4,8 @@
 
 *Framing principle: The manuscript is the specification. Items below are places where the code has not yet been updated to match it. Items marked [TREV-DECISION] require authorial choice before the code alignment can be completed.*
 
+*2026-04-19 update: Items 1, 2, and 4 are retired. The manuscript §2.2.4 no longer pre-specifies constraint tolerances. Instead, tolerances are calibrated by bootstrap per experiment (via `workflows/diagnostics/diag_constraint_calibration.py`) and reported in the Supporting Information for each run. The pre-2026-04-19 §2.2.4 prose hard-coded lag-1 AC = 0.05 and non-drought mean = 15 %, which the 200K NFE Cannonsville run did not use; softening the prose to the per-experiment-reporting posture eliminates the mismatch without forcing a code-side change. Items 3, 5, 6, 7 remain active.*
+
 ---
 
 ## Item 1: Lag-1 autocorrelation tolerance
@@ -123,3 +125,84 @@ The analytic benchmark scripts use EpsNSGAII from `platypus` as a locally runnab
 | 5 | §2.2.2, §3.1 | Borg MOEA (production) | EpsNSGAII (local stand-in) | No change needed — note in §3.1 parenthetical only |
 | 6 | §3.1 | implies single NFE for all analytic results | SI-1 from 2K run; Fig 4 from 30K run | Add parenthetical clarifying the two runs |
 | 7 | CLAUDE.md | — | 1362 (stale) vs 6158/682 (current outputs) | Update CLAUDE.md |
+
+---
+
+## Item 8: Tighten anti-ideal `D*` in Script 04 optimization runs
+
+**Issue (2026-04-20):** The anti-ideal point read from
+`outputs/exp04_kirsch_single_site/residual_T20_nfe200000_s42_constrained/results.json`
+(`"anti_ideal"`) sits far outside the realized drought-characteristics
+cloud from the 500-member Stage 1 replay. When plotted on fig09 it
+dominated the axes and pushed the data into a corner; fig09 now crops
+the anti-ideal off-plot, but the underlying issue is that `D*` defines
+the Manhattan target the MOEA optimizes toward, so an overly loose `D*`
+produces a correspondingly loose feasible region.
+
+**Alignment action:** In the next `04_kirsch_single_site.py`
+optimization run, reduce `D*` toward the empirical worst-case
+duration/severity observed in Stage 1 generators (or a calibrated
+percentile such as the 95th of the generated ensemble). This tightens
+the Manhattan objective and should bring the anti-ideal inside the
+fig09 axes without needing to clip it. [TREV-DECISION: final `D*`
+value — empirical worst-case vs fixed percentile.]
+
+---
+
+## Item 9: NYC demand as a scenario-discovery dimension
+
+**Idea (2026-04-20):** Factorially sample NYC/NJ demand across a range
+(e.g., 400–800 MGD, or a multiplicative scaling factor around the
+FFMP baseline) and pair every demand level with every Pareto drought
+scenario. Scenario discovery then operates in 4D feature space
+(duration, severity, peak_month, demand), letting the classifier
+learn demand effects separately from hydrology.
+
+**Precedent:** Hadjimichael et al. 2020, Kasprzyk & Reed (and related
+Colorado River SD work) use multiplicative demand factors as
+uncertainty dimensions when doing SD for water-resources systems.
+Treating demand as a "deeply uncertain" axis alongside hydrology is
+the convention in that literature.
+
+**Why:** Under the current configuration, demand is held at the FFMP
+`max_flow_baseline_delivery_nyc` scalar — an extreme-demand
+stress-test. Real demand uncertainty over a policy horizon spans a
+meaningfully wider range; if the classifier learns "all observed
+non-satisficing scenarios have severity > 1.5", that boundary could
+shift significantly under lower demand. Having demand as an explicit
+dimension makes those sensitivities visible.
+
+**How to apply:** Defer until after the core MOEA-FIND paper lands,
+then run as a separate numerical experiment. Implementation sketch:
+
+- Add `--demand-scales 0.7 0.85 1.0 1.15 1.3` (for example) to
+  `09_drb_policy_reeval.py`. For each scale, run
+  `N_demand × N_pareto` Pywr-DRB simulations. Either patch Pywr-DRB
+  ModelBuilder to accept an explicit scalar override (instead of the
+  hardcoded `max_flow_baseline_delivery_nyc` lookup) or generate a
+  `custom` flow_type per scale.
+- Extend the metric bank schema to carry the per-scenario demand scale
+  as a column.
+- Fig09 extension options: (a) one row of panels per demand scale —
+  panels still 3D-sliced on drought characteristics, demand held at
+  the row's scale; (b) single-row panels but color-code scatter by
+  demand scale; (c) a separate supplementary figure stratified by
+  demand.
+
+**Challenges:**
+
+1. **Compute cost:** Simulation cost multiplies by `N_demand`. Five
+   scales × 500 Pareto members = 2500 pywrdrb runs. At ~75 min per
+   batch of 500 that's ~6 h of Stage 3 time — manageable but non-trivial.
+2. **Plotting in 4D:** fig09 already stretches a 3D feature space
+   onto 2D panels; demand as a 4th axis forces either more panels or
+   a faceting grid. Risk of clutter.
+3. **Narrative scope:** If the MOEA-FIND manuscript is primarily a
+   *methodological* contribution about synthetic drought generation,
+   demand-dimension SD may dilute the story. Better suited to a
+   follow-up paper that uses MOEA-FIND's outputs as one input among
+   several to a deeply-uncertain-futures analysis.
+
+**Alignment action:** No code change yet. Revisit post-submission of
+the current manuscript. [TREV-DECISION: paper scope — include demand
+dimension in the core paper's fig09 or relegate to a follow-up?]

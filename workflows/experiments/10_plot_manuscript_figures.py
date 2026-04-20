@@ -45,23 +45,31 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Analytic figures run without SynHydro installed.
-from unittest.mock import MagicMock  # noqa: E402
-_stub = MagicMock()
-sys.modules.setdefault("synhydro", _stub)
-sys.modules.setdefault("synhydro.droughts", _stub.droughts)
-sys.modules.setdefault("synhydro.droughts.ssi", _stub.droughts.ssi)
+# Analytic figures run without SynHydro installed; figures that need real
+# SSI calculations (fig05 rebuild, fig06) require SynHydro. Prefer the real
+# module when it's importable so those paths work; only fall back to a
+# MagicMock stub when SynHydro is genuinely missing.
+try:  # noqa: E402
+    import synhydro  # noqa: F401
+    import synhydro.droughts  # noqa: F401
+    import synhydro.droughts.ssi  # noqa: F401
+except Exception:
+    from unittest.mock import MagicMock  # noqa: E402
+    _stub = MagicMock()
+    sys.modules.setdefault("synhydro", _stub)
+    sys.modules.setdefault("synhydro.droughts", _stub.droughts)
+    sys.modules.setdefault("synhydro.droughts.ssi", _stub.droughts.ssi)
 
 import matplotlib.pyplot as plt  # noqa: E402
 
 from src.experiment_config import DEFAULT_EXPERIMENT  # noqa: E402
 from src.experiment_utils import make_variant_slug  # noqa: E402
 from src.plotting.analytic import (  # noqa: E402
-    fig1_param_vs_hazard_space,
     fig3_manhattan_construction,
     fig4_dimension_sweep,
     fig_si_hyperplane_check,
 )
+from src.plotting.architecture import fig3_wrapper_schematic  # noqa: E402
 
 OUTPUTS = PROJECT_ROOT / "outputs"
 FIGURES = PROJECT_ROOT / "figures"
@@ -78,11 +86,6 @@ EXP04_DIR: Path = (
         seed=_CFG.seed, constrained=_CFG.constraints_json is not None,
     )
 )
-EXP11_FIG = (
-    OUTPUTS / "exp11_baseline_comparison" / "figures" / "fig07_scatter_comparison.pdf"
-)
-
-
 def _save(fig, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=300, bbox_inches="tight")
@@ -98,60 +101,34 @@ def _skip(name: str, reason: str) -> None:
 # Generatable now: figures 1, 3, 4 and SI-1, SI-2
 # =============================================================================
 
-def _synthetic_param_hazard(n: int = 500, seed: int = 42):
-    """Fallback data for Figure 1 when the Kirsch library is unavailable.
-
-    Produces a 2D LHS design and projects it through a deliberately
-    nonlinear 2D-to-2D map that mimics the qualitative distortion of the
-    Kirsch-Nowak generator plus SSI-3 extraction: space-filling in
-    parameter space, clumped and stretched in the drought hazard space.
-    The map is not hydrology but preserves the figure's narrative role.
-    Replace with real Kirsch library output once Phase gamma lands.
-    """
-    from scipy.stats import qmc
-    sampler = qmc.LatinHypercube(d=2, seed=seed)
-    u = sampler.random(n)
-    # Parameter space: scale to a unit square
-    param = u
-    # Hazard space: nonlinear, non-monotone 2D map with a saddle and a
-    # density pile-up, plus mild noise, hand-tuned so the projection is
-    # visibly non-uniform.
-    x1, x2 = u[:, 0], u[:, 1]
-    duration = 2.0 + 6.0 * x1 ** 1.8 + 1.5 * np.sin(3.0 * x2)
-    severity = 0.6 + 1.4 * (x2 ** 0.55) + 0.4 * (x1 - 0.5) ** 2
-    rng = np.random.default_rng(seed + 1)
-    duration += rng.normal(0, 0.15, size=n)
-    severity += rng.normal(0, 0.04, size=n)
-    hazard = np.column_stack([duration, severity])
-    historical = np.array([5.0, 1.1])
-    return param, hazard, historical
-
-
 def fig01_param_vs_hazard() -> bool:
-    """Figure 1 (§1.3) - parameter space versus drought hazard space."""
-    # Check for real library data first; fall back to synthetic demonstration.
-    library_json = OUTPUTS / "exp05_kirsch_library" / "characteristics.json"
-    if library_json.exists():
-        # Future: load real LHS-through-Kirsch output here.
-        _skip("fig01", "real library loading path not yet wired; "
-              "using synthetic fallback")
-    param, hazard, historical = _synthetic_param_hazard()
-    fig = fig1_param_vs_hazard_space(
-        param_pts=param,
-        hazard_pts=hazard,
-        historical=historical,
-        param_labels=(r"$x_1$ (generator DV 1)", r"$x_2$ (generator DV 2)"),
-        hazard_labels=(
-            r"mean drought duration (months)",
-            r"mean drought severity (SSI units)",
-        ),
+    """Figure 1 (§1.3) - parameter space versus drought hazard space.
+
+    Deferred to the final polish pass: the conceptual narrative for this
+    figure (qualitative: parameter space space-fills, hazard space does
+    not) is hard to communicate faithfully without real Kirsch-Nowak
+    library output, and the previous synthetic fallback misrepresented
+    the generator. A blank placeholder is emitted so downstream LaTeX
+    compiles; the real panel will land after Figures 2-4 stabilise.
+    """
+    fig = plt.figure(figsize=(7.0, 3.0))
+    ax = fig.add_subplot(111)
+    ax.axis("off")
+    ax.text(
+        0.5, 0.6,
+        "Figure 1 placeholder",
+        ha="center", va="center", fontsize=14, weight="bold",
+        color="#555555",
     )
-    # Watermark: note this is a conceptual demonstration until Phase gamma.
-    fig.text(0.5, 0.005,
-             "conceptual demonstration; real Kirsch-Nowak projection "
-             "pending Phase gamma library",
-             ha="center", va="bottom", fontsize=7,
-             color="#7f7f7f", style="italic")
+    ax.text(
+        0.5, 0.38,
+        "parameter space vs drought hazard space — deferred\n"
+        "(will use real Kirsch-Nowak library projection)",
+        ha="center", va="center", fontsize=9, style="italic",
+        color="#777777",
+    )
+    fig.patch.set_edgecolor("#cccccc")
+    fig.patch.set_linewidth(1.0)
     _save(fig, FIGURES / "fig01_param_vs_hazard_space.pdf")
     return True
 
@@ -174,17 +151,19 @@ def fig04_dim_sweep() -> bool:
 
 
 # =============================================================================
-# Manual: Figure 2 pipeline schematic (Inkscape SVG)
+# Figure 2 pipeline schematic (programmatic placeholder; Inkscape later)
 # =============================================================================
 def fig02_pipeline() -> bool:
     """Figure 2 (§2.6) - MOEA-FIND algorithmic pipeline.
 
-    Inkscape-authored SVG. Not generated by this script. The legacy
-    ``fig03_wrapper_schematic.pdf`` is retained under ``figures/archive/``
-    as a redraw reference until the new pipeline schematic lands.
+    Programmatic matplotlib schematic rendered from
+    :func:`src.plotting.architecture.fig3_wrapper_schematic` as a
+    self-generating placeholder. Will be replaced by an Inkscape-authored
+    SVG in the final polish pass.
     """
-    _skip("fig02", "Inkscape manual redraw (see figures/archive/fig03_wrapper_schematic.pdf)")
-    return False
+    fig = fig3_wrapper_schematic()
+    _save(fig, FIGURES / "fig02_pipeline_schematic.pdf")
+    return True
 
 
 # =============================================================================
@@ -198,16 +177,6 @@ def fig02_pipeline() -> bool:
 # helpful SKIP reason. fig07 (gradient-boosted tree scenario discovery)
 # is still out of scope for this pass and returns a SKIP.
 
-# File rename map for fig05: (src basename in EXP04_DIR/figures, dst
-# basename under figures/). Keep the diagnostic content recognisable.
-_FIG05_COPIES = (
-    ("fig05_drought_space.pdf", "fig05_drought_space.pdf"),
-    ("fig06a_acf.pdf",          "fig05_acf.pdf"),
-    ("fig06b_fdc.pdf",          "fig05_fdc.pdf"),
-    ("fig06c_seasonal.pdf",     "fig05_seasonal.pdf"),
-)
-
-
 def _copy(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(src, dst)
@@ -216,46 +185,215 @@ def _copy(src: Path, dst: Path) -> None:
 
 
 def fig05_cannonsville_hydrology() -> bool:
-    """Figure 5 (§3.2) — Cannonsville hydrology demonstration panels.
+    """Figure 5 (§3.2) — Cannonsville hydrology statistical-agreement panel.
 
-    Thin re-packager: copies the four diagnostic PDFs produced by
-    :mod:`workflows.experiments.04_kirsch_single_site` (drought-space
-    scatter, ACF, FDC, seasonal cycle) into ``figures/`` with
-    ``fig05_*`` names.
+    Rebuilds the 2x2 combined panel (ACF, FDC, seasonal mean, seasonal
+    std) from the synthetic Pareto traces stored in
+    ``EXP04_DIR/results.json`` and freshly resampled historical blocks
+    at the same block length. If a prebuilt ``fig05_hydrology.pdf``
+    already sits in ``EXP04_DIR/figures``, that is copied instead.
+
+    The drought-characteristic scatter (``fig05_drought_space.pdf``) is
+    now treated as its own standalone figure — see
+    :func:`fig_drought_space`.
     """
+    import json
     src_dir = EXP04_DIR / "figures"
-    if not src_dir.is_dir():
-        _skip("fig05", f"missing {src_dir.relative_to(PROJECT_ROOT)} "
+    results_path = EXP04_DIR / "results.json"
+
+    # Fast path: exp04 already produced the combined PDF.
+    prebuilt = src_dir / "fig05_hydrology.pdf"
+    if prebuilt.exists():
+        _copy(prebuilt, FIGURES / "fig05_hydrology.pdf")
+        return True
+
+    if not results_path.exists():
+        _skip("fig05", f"missing {results_path.relative_to(PROJECT_ROOT)} "
                         "(run exp04 for the configured variant first)")
         return False
-    available = [(src, dst) for src, dst in _FIG05_COPIES
-                 if (src_dir / src).exists()]
-    if not available:
-        _skip("fig05", f"no per-variant PDFs found under "
-                        f"{src_dir.relative_to(PROJECT_ROOT)}")
+
+    # Rebuild the combined panel from on-disk traces + fresh historical blocks.
+    try:
+        from src.plotting.trace_diagnostics import plot_hydrology_panels
+        from src.historical_blocks import (
+            resample_historical_blocks,
+            resample_historical_blocks_2d,
+        )
+        from src.experiment_utils import prepare_data
+    except Exception as exc:  # noqa: BLE001
+        _skip("fig05", f"imports for rebuild failed: {exc}")
         return False
-    for src, dst in available:
-        _copy(src_dir / src, FIGURES / dst)
-    if len(available) < len(_FIG05_COPIES):
-        missing = [src for src, _ in _FIG05_COPIES if (src_dir / src).exists() is False]
-        print(f"  note: {len(missing)} expected fig05_* panel(s) missing: {missing}")
+
+    results = json.loads(results_path.read_text())
+    syn_1d_raw = results.get("pareto_traces_1d") or []
+    syn_2d_raw = results.get("pareto_traces_2d") or []
+    if not syn_1d_raw or not syn_2d_raw:
+        _skip("fig05", "results.json has no pareto_traces_1d/_2d")
+        return False
+    n_years = int(results.get("n_years_out", len(syn_2d_raw[0])))
+    syn_1d = [np.asarray(t) for t in syn_1d_raw]
+    syn_2d = [np.asarray(t) for t in syn_2d_raw]
+
+    cache_dir = PROJECT_ROOT / "outputs" / "data_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    monthly_2d, monthly_1d = prepare_data(cache_dir)
+
+    hist_1d = resample_historical_blocks(
+        monthly_1d, T_years=n_years, stride=1,
+    )
+    hist_2d = resample_historical_blocks_2d(
+        monthly_2d, T_years=n_years, stride=1,
+    )
+    fig, _ = plot_hydrology_panels(syn_1d, hist_1d, syn_2d, hist_2d)
+    _save(fig, FIGURES / "fig05_hydrology.pdf")
     return True
 
 
 def fig06_cannonsville_pareto() -> bool:
-    """Figure 6 (§3.2) — Cannonsville Pareto archive in drought-characteristic
-    space, rendered against the Kirsch random ensemble.
+    """Figure 6 (§3.2) — Cannonsville drought-space composite.
 
-    Thin re-packager: copies the scatter panel produced by
-    :mod:`workflows.experiments.11_baseline_comparison` into
-    ``figures/fig06_cannonsville_pareto.pdf``. exp11 must have been run
-    against the current exp04 Pareto for this to exist.
+    Composite figure: 2D scatter + marginals (three populations), 3D
+    scatter (three populations), and four sample monthly-flow traces
+    (two historical blocks at the drought extremes + the nearest
+    MOEA-FIND Pareto traces in 2D drought space), with SSI-based
+    drought events shaded.
+
+    Fast path: copies ``EXP04_DIR/figures/fig06_composite.pdf`` if
+    present (emitted by exp04 runs). Otherwise rebuilds from
+    ``EXP04_DIR/results.json``, ``OUTPUTS/exp05_kirsch_library/
+    characteristics.npz``, and the cached USGS historical series.
     """
-    if not EXP11_FIG.exists():
-        _skip("fig06", f"missing {EXP11_FIG.relative_to(PROJECT_ROOT)} "
-                        "(run exp11 against the current Pareto first)")
+    import json
+    src_dir = EXP04_DIR / "figures"
+    results_path = EXP04_DIR / "results.json"
+    prebuilt = src_dir / "fig06_composite.pdf"
+    if prebuilt.exists():
+        _copy(prebuilt, FIGURES / "fig06_cannonsville_pareto.pdf")
+        return True
+
+    if not results_path.exists():
+        _skip("fig06", f"missing {results_path.relative_to(PROJECT_ROOT)} "
+                        "(run exp04 for the configured variant first)")
         return False
-    _copy(EXP11_FIG, FIGURES / "fig06_cannonsville_pareto.pdf")
+
+    kirsch_npz = OUTPUTS / "exp05_kirsch_library" / "characteristics.npz"
+    if not kirsch_npz.exists():
+        _skip("fig06", f"missing {kirsch_npz.relative_to(PROJECT_ROOT)} "
+                        "(run exp05 to build the Kirsch library first)")
+        return False
+
+    try:
+        from src.plotting.drought_space import plot_fig6_composite
+        from src.historical_blocks import compute_historical_block_chars
+        from src.experiment_utils import prepare_data
+        from src.objectives import make_ssi_calculator, flows_to_series
+    except Exception as exc:  # noqa: BLE001
+        _skip("fig06", f"imports for rebuild failed: {exc}")
+        return False
+
+    results = json.loads(results_path.read_text())
+    pareto_metrics = np.asarray(results["drought_metrics"], dtype=float)
+    pareto_traces_1d_raw = results.get("pareto_traces_1d") or []
+    if not pareto_traces_1d_raw:
+        _skip("fig06", "results.json has no pareto_traces_1d")
+        return False
+    pareto_traces_1d = [np.asarray(t) for t in pareto_traces_1d_raw]
+    anti_ideal = np.asarray(results.get("anti_ideal", []), dtype=float)
+    objective_keys = list(results.get("objective_keys") or [])
+    n_years = int(results.get("n_years_out", 20))
+    ssi_timescale = int(results.get("ssi_timescale", 3))
+
+    # Kirsch library ---------------------------------------------------------
+    kdata = dict(np.load(kirsch_npz))
+    kirsch_all_keys = [str(k) for k in kdata["all_keys"]]
+    kirsch_all_values = np.asarray(kdata["all_values"], dtype=float)
+
+    def _kirsch_col(name):
+        if name not in kirsch_all_keys:
+            return None
+        return kirsch_all_values[:, kirsch_all_keys.index(name)]
+
+    # Project to objective-key order used by Borg (typically 3 keys).
+    kirsch_by_objective = []
+    for k in objective_keys:
+        col = _kirsch_col(k)
+        if col is None:
+            print(f"  note: Kirsch library lacks '{k}'; dropping axis from 3D")
+            kirsch_by_objective = []
+            break
+        kirsch_by_objective.append(col)
+    if kirsch_by_objective:
+        kirsch_full = np.column_stack(kirsch_by_objective)
+    else:
+        kirsch_full = np.empty((0, len(objective_keys)))
+    # 2D kirsch projection is the first two objective-key columns.
+    if kirsch_full.shape[1] >= 2:
+        kirsch_2d = kirsch_full[:, :2]
+    else:
+        kirsch_2d = np.empty((0, 2))
+    kirsch_3d = kirsch_full if kirsch_full.shape[1] >= 3 else None
+
+    # Historical record + SSI calculator ------------------------------------
+    cache_dir = PROJECT_ROOT / "outputs" / "data_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    _, monthly_1d = prepare_data(cache_dir)
+
+    ssi_calc = make_ssi_calculator(timescale=ssi_timescale)
+    ssi_calc.fit(flows_to_series(monthly_1d))
+
+    # Historical block drought characteristics, same objective-key order.
+    hist_chars = compute_historical_block_chars(
+        monthly_1d, T_years=n_years, ssi_calc=ssi_calc,
+        objective_keys=objective_keys, stride=1,
+    )
+
+    # 1D historical block traces at stride=1 (same ordering as hist_chars).
+    from src.historical_blocks import resample_historical_blocks
+    hist_blocks_1d = resample_historical_blocks(
+        monthly_1d, T_years=n_years, stride=1,
+    )
+
+    # Recover the water-year calendar so panels (c)/(d) label real dates.
+    # prepare_data aligns monthly_1d to the first October of the daily
+    # USGS cache; the daily cache stores a datetime index from which we
+    # can read the first year cheaply.
+    import pandas as pd
+    try:
+        daily_csv = next(cache_dir.glob("usgs_*_daily.csv"))
+        daily_df = pd.read_csv(daily_csv, index_col=0, parse_dates=True,
+                                nrows=500)
+        first_oct = daily_df.index[daily_df.index.month == 10][0]
+        hist_wy_start = int(first_oct.year)
+    except Exception:
+        hist_wy_start = None
+    if hist_wy_start is not None:
+        # Block i covers water years [start_year+i, start_year+i+T_years).
+        start_years = [hist_wy_start + i for i in range(len(hist_blocks_1d))]
+    else:
+        start_years = None
+
+    fig = plot_fig6_composite(
+        pareto_metrics=pareto_metrics,
+        pareto_traces_1d=pareto_traces_1d,
+        kirsch_2d=kirsch_2d,
+        kirsch_3d=kirsch_3d,
+        hist_block_chars_2d=hist_chars[:, :2],
+        hist_block_chars_3d=hist_chars if hist_chars.shape[1] >= 3 else None,
+        hist_blocks_1d=hist_blocks_1d,
+        ssi_calc=ssi_calc,
+        anti_ideal=anti_ideal if anti_ideal.size else None,
+        historical_point_2d=None,
+        historical_point_3d=None,
+        objective_labels_2d=(
+            objective_keys[0] if objective_keys else "D_1",
+            objective_keys[1] if len(objective_keys) > 1 else "D_2",
+        ),
+        objective_labels_3d=tuple(
+            objective_keys[:3] + [""] * max(0, 3 - len(objective_keys))
+        )[:3],
+        historical_start_years=start_years,
+    )
+    _save(fig, FIGURES / "fig06_cannonsville_pareto.pdf")
     return True
 
 

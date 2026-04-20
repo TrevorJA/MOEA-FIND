@@ -65,60 +65,153 @@ def replay_pareto_to_multisite_monthly(
     n_months = wrapper.n_years_out * 12
     dates = pd.date_range(start=start_date, periods=n_months, freq="MS")
 
+    import time as _time
     monthly_traces: Dict[int, pd.DataFrame] = {}
+    t0 = _time.time()
+    log_every = max(1, n_pareto // 20)
     for i in range(n_pareto):
         arr = wrapper.generate(pareto_dvs[i])
         # Multi-site output: (n_years*12, n_sites), calendar-year order
         if arr.ndim == 1:
             arr = arr.reshape(n_months, -1)
         monthly_traces[i] = pd.DataFrame(arr, index=dates, columns=kirsch_sites)
+        if (i + 1) % log_every == 0 or (i + 1) == n_pareto:
+            elapsed = _time.time() - t0
+            rate = (i + 1) / max(elapsed, 1e-6)
+            eta = (n_pareto - (i + 1)) / max(rate, 1e-6)
+            print(f"[bridge]   replay {i + 1}/{n_pareto} "
+                  f"({rate:.1f} traces/s, ETA {eta:.0f}s)", flush=True)
 
     print(f"[bridge] Replayed {n_pareto} Pareto DVs → monthly multi-site "
-          f"({n_months} months, {len(kirsch_sites)} sites)")
+          f"({n_months} months, {len(kirsch_sites)} sites) "
+          f"in {_time.time() - t0:.1f}s", flush=True)
     return monthly_traces
+
+
+def _disaggregate_chunk(
+    chunk_traces: Dict[int, pd.DataFrame],
+    nowak_disagg: NowakDisaggregator,
+    seed: int,
+) -> Dict[int, pd.DataFrame]:
+    """Disaggregate one chunk of realizations inside a worker process.
+
+    SynHydro's ``NowakDisaggregator.disaggregate`` hardcodes
+    ``daily_realization_dict[0]`` when building its output metadata, so
+    chunks whose first realization id is not 0 crash with
+    ``KeyError: 0``. We work around this by re-keying the chunk to
+    local 0..N-1 ids before calling SynHydro, then remapping the output
+    back to the original global ids.
+    """
+    from synhydro.core.ensemble import EnsembleMetadata
+
+    np.random.seed(seed)
+    # Build a local-0-indexed view of the chunk, remembering the map
+    # back to the caller's global ids.
+    global_ids = list(chunk_traces.keys())
+    local_chunk = {i: df for i, df in enumerate(chunk_traces.values())}
+    sample_df = next(iter(local_chunk.values()))
+    metadata = EnsembleMetadata(
+        n_realizations=len(local_chunk),
+        n_sites=len(sample_df.columns),
+        time_resolution="MS",
+    )
+    monthly_ensemble = Ensemble(local_chunk, metadata=metadata)
+    daily_ensemble = nowak_disagg.disaggregate(monthly_ensemble, seed=seed)
+    # Remap local ids back to global ids
+    out: Dict[int, pd.DataFrame] = {}
+    for local_id, df in daily_ensemble.data_by_realization.items():
+        out[int(global_ids[int(local_id)])] = df
+    return out
 
 
 def disaggregate_monthly_to_daily(
     monthly_traces: Dict[int, pd.DataFrame],
     nowak_disagg: NowakDisaggregator,
     seed: int = 42,
+    n_jobs: int = -1,
+    chunk_size: int = 50,
 ) -> Dict[int, pd.DataFrame]:
     """Nowak temporal disaggregation: monthly → daily for all Pareto traces.
 
-    Wraps monthly traces as a SynHydro :class:`Ensemble`, disaggregates
-    in one call, and returns the daily Ensemble's ``data_by_realization``.
+    SynHydro's :meth:`NowakDisaggregator.disaggregate` iterates
+    realizations serially inside a single process, which is the Stage 1
+    bottleneck for large ensembles. We wrap it here with a joblib
+    chunked parallel map so that the 16 allocated SLURM cores actually
+    participate. Each chunk is an independent Ensemble disaggregated in
+    its own worker process; results are merged on the caller side.
 
     Args:
         monthly_traces: ``{pareto_idx: monthly_DataFrame}`` from
             :func:`replay_pareto_to_multisite_monthly`.
         nowak_disagg: Fitted :class:`NowakDisaggregator`.
-        seed: Random seed for disaggregation reproducibility.
+        seed: Base random seed. Per-chunk seeds are derived from this
+            to keep reproducibility under parallel execution.
+        n_jobs: Joblib worker count. ``-1`` uses all allocated CPUs
+            (``SLURM_CPUS_PER_TASK``/``SLURM_NTASKS`` when set, otherwise
+            ``os.cpu_count()``).
+        chunk_size: Realizations per chunk. Smaller = finer progress
+            granularity but more process-boundary overhead; 50 is a
+            good balance at 7300 days × 22 sites.
 
     Returns:
         ``{pareto_idx: daily_DataFrame}`` with daily datetime index,
         same site columns, MGD units.
     """
-    from synhydro.core.ensemble import EnsembleMetadata
+    import os
+    import time as _time
 
-    np.random.seed(seed)
+    from joblib import Parallel, delayed
 
-    sample_df = next(iter(monthly_traces.values()))
-    metadata = EnsembleMetadata(
-        n_realizations=len(monthly_traces),
-        n_sites=len(sample_df.columns),
-        time_resolution="MS",
+    n_pareto = len(monthly_traces)
+    if n_pareto == 0:
+        return {}
+
+    if n_jobs == -1:
+        n_jobs = int(
+            os.environ.get("SLURM_CPUS_PER_TASK")
+            or os.environ.get("SLURM_NTASKS")
+            or os.cpu_count() or 1
+        )
+    n_jobs = max(1, min(n_jobs, n_pareto))
+
+    # Split into chunks keyed by original realization id
+    items = sorted(monthly_traces.items(), key=lambda kv: int(kv[0]))
+    chunks: List[Dict[int, pd.DataFrame]] = []
+    for i in range(0, len(items), chunk_size):
+        chunks.append(dict(items[i : i + chunk_size]))
+    n_chunks = len(chunks)
+
+    print(f"[bridge] Nowak disaggregation: {n_pareto} traces in "
+          f"{n_chunks} chunks of up to {chunk_size}, n_jobs={n_jobs}",
+          flush=True)
+
+    t0 = _time.time()
+    # ``max_nbytes=None`` disables joblib's automatic read-only memory
+    # mapping of large arrays. SynHydro's NowakDisaggregator does
+    # in-place arithmetic on its internal arrays (e.g.
+    # ``site_props[mask] *= ...``), which raises
+    # ``ValueError: assignment destination is read-only`` when the
+    # arrays arrive memory-mapped in a worker. The extra per-worker
+    # memory cost is acceptable at this ensemble size.
+    results = Parallel(
+        n_jobs=n_jobs, backend="loky", verbose=0, max_nbytes=None,
+    )(
+        delayed(_disaggregate_chunk)(chunk, nowak_disagg, seed + k)
+        for k, chunk in enumerate(chunks)
     )
-    monthly_ensemble = Ensemble(monthly_traces, metadata=metadata)
-    daily_ensemble = nowak_disagg.disaggregate(monthly_ensemble)
+    elapsed = _time.time() - t0
 
-    daily_traces = {}
-    for real_id, df in daily_ensemble.data_by_realization.items():
-        daily_traces[int(real_id)] = df
+    # Merge chunk outputs
+    daily_traces: Dict[int, pd.DataFrame] = {}
+    for r in results:
+        daily_traces.update(r)
 
-    n_pareto = len(daily_traces)
     sample_df = next(iter(daily_traces.values()))
-    print(f"[bridge] Nowak disaggregation complete: {n_pareto} traces, "
-          f"{len(sample_df)} days, {len(sample_df.columns)} sites")
+    print(f"[bridge] Nowak disaggregation complete: "
+          f"{len(daily_traces)} traces, {len(sample_df)} days, "
+          f"{len(sample_df.columns)} sites in {elapsed:.1f}s "
+          f"({len(daily_traces) / max(elapsed, 1e-6):.1f} traces/s)",
+          flush=True)
     return daily_traces
 
 
@@ -197,11 +290,13 @@ def generate_kde_downstream_nodes(
         ``{pareto_idx: daily_DataFrame}`` with both Kirsch-generated and
         KDE-regressed columns.
     """
+    import time as _time
     n_pareto = len(daily_traces)
     sample_df = next(iter(daily_traces.values()))
     n_days = len(sample_df)
+    t0 = _time.time()
 
-    for upstream, downstream in kde_pairs:
+    for pair_idx, (upstream, downstream) in enumerate(kde_pairs):
         kde_name = f"{upstream}_to_{downstream}"
         if kde_name not in kdes:
             continue
@@ -232,13 +327,17 @@ def generate_kde_downstream_nodes(
                 downstream_gage = downstream_inflow + upstream_flow
 
             df[downstream] = downstream_gage
+        print(f"[bridge]   KDE pair {pair_idx + 1}/{len(kde_pairs)} "
+              f"({upstream}→{downstream}) done "
+              f"at {_time.time() - t0:.1f}s", flush=True)
 
     # Add delTrenton column (zeroed by convention)
     for df in daily_traces.values():
         df["delTrenton"] = 0.0
 
     print(f"[bridge] KDE regression added {len(kde_pairs)} downstream nodes "
-          f"+ delTrenton")
+          f"+ delTrenton in {_time.time() - t0:.1f}s",
+          flush=True)
     return daily_traces
 
 
@@ -257,12 +356,20 @@ def compute_marginal_catchment_inflows(
     Returns:
         ``{pareto_idx: catchment_inflow_DataFrame}`` with marginal inflows.
     """
+    import time as _time
+    t0 = _time.time()
     inflow_traces: Dict[int, pd.DataFrame] = {}
-    for idx, gage_df in gage_flow_traces.items():
+    n = len(gage_flow_traces)
+    log_every = max(1, n // 10)
+    for i, (idx, gage_df) in enumerate(gage_flow_traces.items()):
         inflow_traces[idx] = _subtract_upstream_catchment_inflows(gage_df)
+        if (i + 1) % log_every == 0 or (i + 1) == n:
+            print(f"[bridge]   catchment-inflow {i + 1}/{n} "
+                  f"at {_time.time() - t0:.1f}s", flush=True)
 
     print(f"[bridge] Computed marginal catchment inflows for "
-          f"{len(inflow_traces)} traces")
+          f"{len(inflow_traces)} traces in {_time.time() - t0:.1f}s",
+          flush=True)
     return inflow_traces
 
 
@@ -343,21 +450,47 @@ def prep_predicted_inflows(
     ensemble_dir: Path,
     realization_ids: List[str],
     use_mpi: bool = False,
+    demand_source: str = "constant_max",
 ) -> None:
-    """Run PredictedInflowEnsemblePreprocessor for the MOEA-FIND ensemble.
+    """Run Pywr-DRB ensemble preprocessors needed for the upcoming sim.
 
-    With ``constant_max`` demand, only predicted inflows are needed
-    (diversion preprocessors are not required).
+    Which files ModelBuilder actually reads depends on the demand source:
 
-    Creates ``{ensemble_dir}/predicted_inflows_mgd.hdf5``.
+    +----------------------------------------+---------------+----------+
+    | Artifact                               | constant_max  | custom / |
+    |                                        |               | historic |
+    +----------------------------------------+---------------+----------+
+    | predicted_inflows_mgd.hdf5             | required      | required |
+    | diversion_nj_extrapolated_mgd.hdf5     | unused        | required |
+    | diversion_nyc_extrapolated_mgd.hdf5    | unused        | required |
+    | predicted_diversions_mgd.hdf5          | unused[1]     | required |
+    +----------------------------------------+---------------+----------+
+
+    [1] Requires the Pywr-DRB ModelBuilder patch that substitutes a
+    ``constant`` parameter for ``predicted_demand_nj_lag{1..4}`` when
+    ``nyc_nj_demand_source == "constant_max"``. With that patch in
+    place, the three diversion HDF5s are not needed under constant_max
+    and we skip them here. Without the patch, ModelBuilder would still
+    demand them even though they encode a forecast that is
+    operationally unused; force-regenerate by passing a non-constant
+    ``demand_source``.
 
     Args:
         flow_type: Registered flow type name.
-        ensemble_dir: Directory containing ``catchment_inflow_mgd.hdf5``.
-        realization_ids: List of realization ID strings (e.g., ``["0","1",...]``).
+        ensemble_dir: Directory containing ``catchment_inflow_mgd.hdf5``
+            and ``gage_flow_mgd.hdf5`` (both written by Stage 1).
+        realization_ids: List of realization ID strings (e.g.,
+            ``["0","1",...]``).
         use_mpi: If True, distribute preprocessing across MPI ranks.
+        demand_source: Selects which preprocessors run. ``constant_max``
+            runs only Step 1; any other value runs all four steps to
+            match ModelBuilder's `historical` / `custom` demand paths.
     """
-    from pywrdrb.pre import PredictedInflowEnsemblePreprocessor
+    from pywrdrb.pre import (
+        PredictedInflowEnsemblePreprocessor,
+        ExtrapolatedDiversionEnsemblePreprocessor,
+        PredictedDiversionEnsemblePreprocessor,
+    )
 
     comm = None
     if use_mpi:
@@ -367,43 +500,105 @@ def prep_predicted_inflows(
         rank = 0
 
     catchment_inflow_file = str(Path(ensemble_dir) / "catchment_inflow_mgd.hdf5")
+    gage_flow_file = str(Path(ensemble_dir) / "gage_flow_mgd.hdf5")
+    run_diversion_steps = demand_source != "constant_max"
+    n_steps = 4 if run_diversion_steps else 1
 
     if rank == 0:
-        print(f"[bridge] Running PredictedInflowEnsemblePreprocessor "
+        print(f"[bridge] Step 1/{n_steps}: PredictedInflowEnsemblePreprocessor "
               f"for {len(realization_ids)} realizations "
-              f"({'MPI' if use_mpi else 'serial'})...")
-
-    preprocessor = PredictedInflowEnsemblePreprocessor(
+              f"({'MPI' if use_mpi else 'serial'})")
+    inflow_pre = PredictedInflowEnsemblePreprocessor(
         flow_type=flow_type,
         ensemble_hdf5_file=catchment_inflow_file,
         realization_ids=realization_ids,
-        start_date=None,
-        end_date=None,
+        start_date=None, end_date=None,
         modes=("perfect_foresight",),
-        use_log=True,
-        remove_zeros=True,
-        use_const=False,
-        use_mpi=use_mpi,
-        comm=comm,
+        use_log=True, remove_zeros=True, use_const=False,
+        use_mpi=use_mpi, comm=comm,
     )
-    preprocessor.load()
-    preprocessor.process()
-    preprocessor.save()
+    inflow_pre.load(); inflow_pre.process(); inflow_pre.save()
+    del inflow_pre
+
+    if not run_diversion_steps:
+        if rank == 0:
+            print(f"[bridge] demand_source={demand_source!r}: skipping "
+                  f"diversion preprocessors (ModelBuilder uses constant "
+                  f"scalars for demand_nj/demand_nyc and predicted_demand_nj_lag*).")
+            print(f"[bridge] Wrote predicted_inflows_mgd.hdf5 → {ensemble_dir}")
+        return
 
     if rank == 0:
-        print(f"[bridge] Wrote predicted_inflows_mgd.hdf5")
+        print(f"[bridge] Step 2/{n_steps}: ExtrapolatedDiversionEnsemblePreprocessor(nj)")
+    nj_extrap = ExtrapolatedDiversionEnsemblePreprocessor(
+        loc="nj",
+        flow_type=flow_type,
+        ensemble_hdf5_file=gage_flow_file,
+        realization_ids=realization_ids,
+        use_mpi=use_mpi, comm=comm,
+    )
+    nj_extrap.load(); nj_extrap.process(); nj_extrap.save()
+    del nj_extrap
+
+    if rank == 0:
+        print(f"[bridge] Step 3/{n_steps}: ExtrapolatedDiversionEnsemblePreprocessor(nyc)")
+    nyc_extrap = ExtrapolatedDiversionEnsemblePreprocessor(
+        loc="nyc",
+        flow_type=flow_type,
+        ensemble_hdf5_file=gage_flow_file,
+        realization_ids=realization_ids,
+        use_mpi=use_mpi, comm=comm,
+    )
+    nyc_extrap.load(); nyc_extrap.process(); nyc_extrap.save()
+    del nyc_extrap
+
+    if rank == 0:
+        print(f"[bridge] Step 4/{n_steps}: PredictedDiversionEnsemblePreprocessor")
+    import pywrdrb
+    nj_div_hdf5 = str(
+        pywrdrb.get_pn_object().sc.get(f"flows/{flow_type}")
+        / "diversion_nj_extrapolated_mgd.hdf5"
+    )
+    div_pre = PredictedDiversionEnsemblePreprocessor(
+        flow_type=flow_type,
+        ensemble_hdf5_file=nj_div_hdf5,
+        realization_ids=realization_ids,
+        start_date=None, end_date=None,
+        modes=("perfect_foresight",),
+        use_log=True, remove_zeros=True, use_const=False,
+        use_mpi=use_mpi, comm=comm,
+    )
+    div_pre.load(); div_pre.process(); div_pre.save()
+    del div_pre
+
+    if rank == 0:
+        print(f"[bridge] Wrote predicted_inflows_mgd.hdf5, "
+              f"diversion_nj_extrapolated_mgd.hdf5, "
+              f"diversion_nyc_extrapolated_mgd.hdf5, "
+              f"predicted_diversions_mgd.hdf5 → {ensemble_dir}")
 
 
 # ===================================================================
 # Stage 3: Run Pywr-DRB simulations
 # ===================================================================
 
-# Results sets to record (must include res_level for drought zone extraction)
+# Results sets to record. Keep aligned with
+# ``../StochasticExploratoryExperiment/methods/config.py::SAVE_RESULTS_SETS``
+# so Stage 4 metric-bank helpers can compute FFMP exposure, Hashimoto
+# reliability/vulnerability, flow-target reliability, and any storage- or
+# delivery-based satisficing metric from a single pass over the HDF5
+# output. Extending this list only adds columns; it does not change the
+# Pywr-DRB model or the simulation cost.
 SAVE_RESULTS_SETS = [
     "major_flow",
-    "res_storage",
-    "res_level",
     "inflow",
+    "res_storage",
+    "lower_basin_mrf_contributions",
+    "mrf_target",
+    "ibt_diversions",
+    "ibt_demands",
+    "nyc_release_components",
+    "res_level",
 ]
 
 

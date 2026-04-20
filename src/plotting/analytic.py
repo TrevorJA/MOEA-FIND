@@ -377,96 +377,134 @@ def fig_si_hyperplane_check(
 # Main-text Figure 3 — Manhattan-distance auxiliary objective construction
 # =============================================================================
 def fig3_manhattan_construction(
-    figsize: Tuple[float, float] = (9.5, 3.2),
+    diag_root=None,
+    figsize: Tuple[float, float] = (11.0, 3.6),
 ) -> plt.Figure:
-    """Manuscript Figure 3 — geometric core of the method (K=2 case).
+    """Manuscript Figure 3 — space-filling behavior in the K-dim objective space.
 
-    Three panels in a K=2 illustration:
-      (a) feasible image on the codimension-1 affine subset S inside the
-          K+1=3 objective space, with the anti-ideal D* outside the image;
-      (b) bijective projection pi from S to the K=2 drought characteristic
-          plane, with axes aligned to the two target characteristics;
-      (c) epsilon-box lattice tiling of S pulled back through pi to a
-          structured sample of the feasible drought characteristic region.
+    Uses the real Borg archive from the K=2 shell-vs-interior diagnostic
+    to make three points:
+      (a) the archive fills the K-dim drought-objective cube — it is not
+          confined to a simplex or any other codimension-1 manifold;
+      (b) lifting each archive point into (K+1) dimensions by the
+          auxiliary J_{K+1} = ||D - D^*||_1 shows that the auxiliary is a
+          deterministic function of (D_1, ..., D_K) — a piecewise-linear
+          tent over the cube, not an independent axis;
+      (c) side-by-side with an equal-size LHS sample inside the same
+          feasible cube, the MOEA-FIND archive matches the space-filling
+          density quality of a designed space-filling sampler.
+
+    Parameters
+    ----------
+    diag_root : path-like, optional
+        Directory containing k2/samples.npz and k2/results.json from
+        ``workflows/diagnostics/diag_shell_vs_interior.py``. Defaults to
+        ``outputs/diag_shell_vs_interior`` relative to the project root.
     """
+    from pathlib import Path
+
     apply_style()
-    fig = plt.figure(figsize=figsize)
-    gs = GridSpec(1, 3, figure=fig, width_ratios=[1.1, 1.0, 1.0], wspace=0.32)
 
-    # Consistent anti-ideal and bounding box
+    # --- Load K=2 Borg + LHS samples from the shell-interior diagnostic ---
+    if diag_root is None:
+        here = Path(__file__).resolve()
+        diag_root = (
+            here.parents[2] / "outputs" / "diag_shell_vs_interior"
+        )
+    diag_root = Path(diag_root)
+    k2_dir = diag_root / "k2"
+    samples_path = k2_dir / "samples.npz"
+    if not samples_path.exists():
+        raise FileNotFoundError(
+            f"Fig 3 requires Borg samples at {samples_path}. "
+            "Run workflows/diagnostics/diag_shell_vs_interior.py --k 2."
+        )
+    samples = dict(np.load(samples_path))
+    borg = samples["borg"]     # (n, 2) — J_1 = x_1, J_2 = x_2
+    lhs = samples["lhs"]
     D_star = np.array([3.0, 3.0])
-    bounds = (-3.0, 3.0)
-    # Constant sum C = D1* + D2* = 6 in the K+1 = 3 objective space
-    C = D_star.sum()
+    half_width = 2.5  # feasible cube half-width from the diagnostic
 
-    # -- Panel (a): 3D affine subset S = {f : f1 + f2 + f3 = C} --
-    ax_a = fig.add_subplot(gs[0, 0], projection="3d")
-    # Triangle of S intersected with non-negative orthant: vertices at (C,0,0) etc.
-    verts = np.array([[C, 0, 0], [0, C, 0], [0, 0, C]])
-    tri = np.vstack([verts, verts[0]])
-    ax_a.plot(tri[:, 0], tri[:, 1], tri[:, 2], color=COLORS["empirical"], lw=1.4)
-    # Feasible image: a curved patch inside the triangle (schematic)
-    rng = np.random.default_rng(1)
-    bary = rng.dirichlet(alpha=(2.0, 2.0, 2.0), size=240)
-    pts = bary @ verts
-    ax_a.scatter(pts[:, 0], pts[:, 1], pts[:, 2], s=6,
-                 color=COLORS["empirical"], alpha=0.65,
-                 label=r"feasible image on $S$")
-    # Anti-ideal (at origin of the objective space since f_j = D*_j - D_j)
-    ax_a.scatter([0], [0], [C], color=COLORS["anti_ideal"], marker="x",
-                 s=50, label=r"$D^\star$")
-    ax_a.set_xlabel(r"$f_1$", labelpad=-2)
-    ax_a.set_ylabel(r"$f_2$", labelpad=-2)
-    ax_a.set_zlabel(r"$f_{K+1}$", labelpad=-2)
-    ax_a.set_title(r"(a) feasible image on $S \subset \mathbb{R}^{K+1}$",
-                   fontsize=9)
-    ax_a.view_init(elev=22, azim=42)
-    for lbl in (ax_a.get_xticklabels() + ax_a.get_yticklabels()
-                + ax_a.get_zticklabels()):
-        lbl.set_fontsize(7)
+    # Auxiliary objective: J_{K+1} = Manhattan distance to anti-ideal D*
+    def aux(pts):
+        return np.abs(pts - D_star).sum(axis=1)
 
-    # -- Panel (b): bijective projection pi to K=2 drought plane --
-    ax_b = fig.add_subplot(gs[0, 1])
-    D_pts = D_star - pts[:, :2]  # recover D from f = D*_j - D_j
-    ax_b.scatter(D_pts[:, 0], D_pts[:, 1], s=8,
-                 color=COLORS["empirical"], alpha=0.65)
-    ax_b.plot(*D_star, "x", color=COLORS["anti_ideal"], mew=2, ms=10,
-              label=r"$D^\star$")
-    ax_b.plot(bounds[0], bounds[0], ".", color=COLORS["historical"],
-              ms=10, label="ideal")
-    ax_b.set_xlim(bounds); ax_b.set_ylim(bounds)
-    ax_b.set_aspect("equal")
-    ax_b.set_xlabel(r"$D_1$")
-    ax_b.set_ylabel(r"$D_2$")
-    ax_b.set_title(r"(b) projection $\pi: S \to \mathbb{R}^K$", fontsize=9)
-    ax_b.legend(fontsize=7, loc="lower right", framealpha=0.9)
+    fig = plt.figure(figsize=figsize)
+    gs = GridSpec(1, 3, figure=fig, width_ratios=[1.0, 1.2, 1.0], wspace=0.32)
 
-    # -- Panel (c): epsilon-box lattice tiling pulled back through pi --
-    ax_c = fig.add_subplot(gs[0, 2])
-    eps = 0.5
-    # Epsilon-box centers in f1, f2 that lie on the C = constant surface
-    # (so f3 = C - f1 - f2 is recoverable). The archive retains one per box.
-    grid_vals = np.arange(0, C + eps, eps)
-    f1, f2 = np.meshgrid(grid_vals, grid_vals)
-    mask = (f1 + f2 <= C)
-    f1_m, f2_m = f1[mask], f2[mask]
-    D1 = D_star[0] - f1_m
-    D2 = D_star[1] - f2_m
-    box = plt.matplotlib.patches.Rectangle(
-        (bounds[0], bounds[0]), C, C, fill=False, lw=0.6,
-        edgecolor=COLORS["muted"], linestyle="--"
+    # -- Panel (a): Borg archive fills the K-dim drought objective cube --
+    ax_a = fig.add_subplot(gs[0, 0])
+    feas = plt.matplotlib.patches.Rectangle(
+        (-half_width, -half_width), 2 * half_width, 2 * half_width,
+        fill=False, lw=0.8, ls="--", edgecolor="black",
+        label=r"feasible cube",
     )
-    ax_c.add_patch(box)
-    ax_c.scatter(D1, D2, s=24, color=COLORS["parametric"],
-                 edgecolor="black", linewidth=0.3,
-                 label=r"$\varepsilon$-box centers")
-    ax_c.plot(*D_star, "x", color=COLORS["anti_ideal"], mew=2, ms=10)
-    ax_c.set_xlim(bounds); ax_c.set_ylim(bounds)
+    ax_a.add_patch(feas)
+    ax_a.scatter(borg[:, 0], borg[:, 1], s=10,
+                 color=COLORS["parametric"], alpha=0.6,
+                 edgecolor="none", label=f"MOEA-FIND archive (n={len(borg)})")
+    ax_a.plot(*D_star, "x", color=COLORS["anti_ideal"], mew=2.2, ms=12,
+              label=r"anti-ideal $D^\star$")
+    ax_a.set_xlim(-3.3, 3.5); ax_a.set_ylim(-3.3, 3.5)
+    ax_a.set_aspect("equal")
+    ax_a.set_xlabel(r"$J_1 = D_1$")
+    ax_a.set_ylabel(r"$J_2 = D_2$")
+    ax_a.set_title(r"(a) archive fills $K$-dim objective cube",
+                   fontsize=10)
+    ax_a.legend(fontsize=7, loc="lower left", framealpha=0.9)
+
+    # -- Panel (b): K+1 lift — auxiliary is a deterministic tent surface --
+    ax_b = fig.add_subplot(gs[0, 1], projection="3d")
+    # Render the piecewise-linear tent J_{K+1}(J_1, J_2) = |J_1-3| + |J_2-3|
+    gg = np.linspace(-half_width, half_width, 30)
+    J1, J2 = np.meshgrid(gg, gg)
+    Jaux = np.abs(J1 - D_star[0]) + np.abs(J2 - D_star[1])
+    ax_b.plot_surface(J1, J2, Jaux, cmap="Greys", alpha=0.25,
+                      edgecolor="none", rstride=1, cstride=1)
+    # Scatter Borg archive lifted to (J1, J2, J_{K+1})
+    ax_b.scatter(borg[:, 0], borg[:, 1], aux(borg), s=6,
+                 color=COLORS["parametric"], alpha=0.65,
+                 label="MOEA-FIND archive")
+    # Anti-ideal marker at J_{K+1}=0
+    ax_b.scatter([D_star[0]], [D_star[1]], [0],
+                 color=COLORS["anti_ideal"], marker="x", s=60, linewidth=2.2,
+                 label=r"$D^\star$")
+    ax_b.set_xlabel(r"$J_1$", labelpad=-2)
+    ax_b.set_ylabel(r"$J_2$", labelpad=-2)
+    ax_b.set_zlabel(r"$J_{K+1}=\|D-D^\star\|_1$", labelpad=-2)
+    ax_b.set_title(r"(b) auxiliary $J_{K+1}$ is a function of $J_{1:K}$",
+                   fontsize=10)
+    ax_b.view_init(elev=22, azim=-135)
+    for lbl in (ax_b.get_xticklabels() + ax_b.get_yticklabels()
+                + ax_b.get_zticklabels()):
+        lbl.set_fontsize(7)
+    ax_b.legend(fontsize=7, loc="upper right", framealpha=0.9)
+
+    # -- Panel (c): MOEA-FIND vs equal-size LHS in the feasible cube --
+    ax_c = fig.add_subplot(gs[0, 2])
+    feas2 = plt.matplotlib.patches.Rectangle(
+        (-half_width, -half_width), 2 * half_width, 2 * half_width,
+        fill=False, lw=0.8, ls="--", edgecolor="black",
+    )
+    ax_c.add_patch(feas2)
+    # Match n for a fair overlay
+    n_show = min(len(borg), len(lhs))
+    rng = np.random.default_rng(0)
+    idx_b = rng.choice(len(borg), size=n_show, replace=False)
+    idx_l = rng.choice(len(lhs), size=n_show, replace=False)
+    ax_c.scatter(lhs[idx_l, 0], lhs[idx_l, 1], s=10,
+                 color=COLORS["muted"], alpha=0.5,
+                 edgecolor="none", label="LHS reference")
+    ax_c.scatter(borg[idx_b, 0], borg[idx_b, 1], s=10,
+                 color=COLORS["parametric"], alpha=0.55,
+                 edgecolor="none", label="MOEA-FIND")
+    ax_c.plot(*D_star, "x", color=COLORS["anti_ideal"], mew=2.2, ms=12)
+    ax_c.set_xlim(-3.3, 3.5); ax_c.set_ylim(-3.3, 3.5)
     ax_c.set_aspect("equal")
-    ax_c.set_xlabel(r"$D_1$")
-    ax_c.set_ylabel(r"$D_2$")
-    ax_c.set_title(r"(c) $\varepsilon$-box tiling pulled back", fontsize=9)
-    ax_c.legend(fontsize=7, loc="lower right", framealpha=0.9)
+    ax_c.set_xlabel(r"$J_1 = D_1$")
+    ax_c.set_ylabel(r"$J_2 = D_2$")
+    ax_c.set_title("(c) matches space-filling reference", fontsize=10)
+    ax_c.legend(fontsize=7, loc="lower left", framealpha=0.9)
 
     return fig
 
@@ -494,19 +532,21 @@ def _load_dimension_sweep(diag_root) -> Dict[int, Dict[str, object]]:
 
 def fig4_dimension_sweep(
     diag_root,
-    figsize: Tuple[float, float] = (10.0, 7.0),
+    figsize: Tuple[float, float] = (12.0, 7.4),
 ) -> plt.Figure:
     """Manuscript Figure 4 — interior-filling coverage across K = 2..6.
 
-    Four panels (2x2):
-      (a) K=3 scatter of MOEA-FIND archive inside the feasible K-ball
-          compared to an equal-size Latin hypercube reference (x1-x2
-          projection with ball outline).
-      (b) Mean Manhattan distance from the anti-ideal versus K, one line
-          per sampler (MOEA-FIND, uniform-in-ball, LHS-in-ball,
-          Sobol-in-ball).
-      (c) Interior mass fraction versus K.
-      (d) Signed orthant occupancy fraction versus K.
+    Five panels (top row: 3D scatter; bottom row: per-K metric lines):
+      (a) K=3 MOEA-FIND archive rendered as a 3D scatter inside the
+          feasible cube, anti-ideal marked at the corner.
+      (b) K=3 LHS and Sobol reference samples overlaid in 3D, same cube.
+      (c) Mean Manhattan distance from the anti-ideal versus K.
+      (d) Interior mass fraction versus K.
+      (e) Signed orthant occupancy fraction versus K.
+
+    The four samplers (MOEA-FIND, uniform, LHS, Sobol) use distinct
+    line styles in panels (c)-(e) so that overlapping curves can still
+    be traced individually.
 
     Parameters
     ----------
@@ -522,61 +562,118 @@ def fig4_dimension_sweep(
         )
 
     fig = plt.figure(figsize=figsize)
-    gs = GridSpec(2, 2, figure=fig, wspace=0.28, hspace=0.32)
-    ax_a = fig.add_subplot(gs[0, 0])
-    ax_b = fig.add_subplot(gs[0, 1])
-    ax_c = fig.add_subplot(gs[1, 0])
-    ax_d = fig.add_subplot(gs[1, 1])
+    gs = GridSpec(2, 6, figure=fig, wspace=1.1, hspace=0.35,
+                  height_ratios=[1.1, 1.0])
+    ax_a = fig.add_subplot(gs[0, 0:3], projection="3d")
+    ax_b = fig.add_subplot(gs[0, 3:6], projection="3d")
+    ax_c = fig.add_subplot(gs[1, 0:2])
+    ax_d = fig.add_subplot(gs[1, 2:4])
+    ax_e = fig.add_subplot(gs[1, 4:6])
 
     sampler_colors = {
         "MOEA-FIND": COLORS["parametric"],
-        "uniform_in_ball": COLORS["muted"],
-        "lhs_in_ball": COLORS["empirical"],
-        "sobol_in_ball": COLORS["sobol"],
+        "uniform_in_cube": COLORS["muted"],
+        "lhs_in_cube": COLORS["empirical"],
+        "sobol_in_cube": COLORS["sobol"],
+    }
+    sampler_linestyles = {
+        "MOEA-FIND": "-",
+        "uniform_in_cube": "--",
+        "lhs_in_cube": "-.",
+        "sobol_in_cube": ":",
+    }
+    sampler_markers = {
+        "MOEA-FIND": "o",
+        "uniform_in_cube": "s",
+        "lhs_in_cube": "^",
+        "sobol_in_cube": "D",
     }
     sampler_labels = {
         "MOEA-FIND": "MOEA-FIND",
-        "uniform_in_ball": "uniform",
-        "lhs_in_ball": "LHS",
-        "sobol_in_ball": "Sobol",
+        "uniform_in_cube": "uniform",
+        "lhs_in_cube": "LHS",
+        "sobol_in_cube": "Sobol",
     }
-    sampler_keys = ["MOEA-FIND", "uniform_in_ball", "lhs_in_ball",
-                    "sobol_in_ball"]
-    samples_map = {
-        "MOEA-FIND": "borg",
-        "uniform_in_ball": "unif",
-        "lhs_in_ball": "lhs",
-        "sobol_in_ball": "sobol",
-    }
+    sampler_keys = ["MOEA-FIND", "uniform_in_cube", "lhs_in_cube",
+                    "sobol_in_cube"]
 
-    # --- Panel (a): K=3 projected scatter (x1, x2) with ball outline ---
+    def _cube_wireframe(ax, r: float) -> None:
+        """Draw a dashed wireframe of the feasible cube [-r, r]^3."""
+        corners = np.array([
+            [sx, sy, sz]
+            for sx in (-r, r) for sy in (-r, r) for sz in (-r, r)
+        ])
+        edges = [
+            (0, 1), (0, 2), (0, 4), (1, 3), (1, 5), (2, 3),
+            (2, 6), (3, 7), (4, 5), (4, 6), (5, 7), (6, 7),
+        ]
+        for i, j in edges:
+            ax.plot(
+                [corners[i, 0], corners[j, 0]],
+                [corners[i, 1], corners[j, 1]],
+                [corners[i, 2], corners[j, 2]],
+                color="black", lw=0.6, ls="--", alpha=0.55,
+            )
+
+    # --- Panel (a): K=3 MOEA-FIND archive in 3D ---
     if 3 in data:
         k3 = data[3]
         samples = k3["samples"]
         results = k3["results"]
-        radius = results.get("ball_radius", 2.5)
-        # Ball outline in x1-x2 projection (disc of same radius)
-        theta = np.linspace(0, 2 * np.pi, 200)
-        ax_a.plot(radius * np.cos(theta), radius * np.sin(theta),
-                  color="black", lw=0.8, ls="--",
-                  label=r"feasible $K$-ball")
+        radius = results.get("feasible_radius", 2.5)
+        _cube_wireframe(ax_a, radius)
         borg = samples["borg"]
-        lhs = samples["lhs"]
         # Downsample for visual clarity
         n_show = min(800, len(borg))
         rng = np.random.default_rng(0)
         idx_b = rng.choice(len(borg), size=n_show, replace=False)
-        idx_l = rng.choice(len(lhs), size=n_show, replace=False)
-        ax_a.scatter(lhs[idx_l, 0], lhs[idx_l, 1], s=6,
-                     color=COLORS["muted"], alpha=0.35, label="LHS")
-        ax_a.scatter(borg[idx_b, 0], borg[idx_b, 1], s=6,
-                     color=COLORS["parametric"], alpha=0.6,
+        ax_a.scatter(borg[idx_b, 0], borg[idx_b, 1], borg[idx_b, 2],
+                     s=6, color=COLORS["parametric"], alpha=0.6,
                      label="MOEA-FIND")
-        ax_a.set_aspect("equal")
-        ax_a.set_xlim(-3.2, 3.2); ax_a.set_ylim(-3.2, 3.2)
-        ax_a.set_xlabel(r"$x_1$"); ax_a.set_ylabel(r"$x_2$")
-        ax_a.legend(fontsize=7, loc="upper right", framealpha=0.9)
-    ax_a.set_title(r"(a) $K=3$ archive inside feasible $K$-ball", fontsize=10)
+        ax_a.scatter([3], [3], [3], marker="X",
+                     color=COLORS["anti_ideal"], s=60,
+                     label=r"anti-ideal $D^\star$")
+        ax_a.set_xlim(-3.2, 3.2); ax_a.set_ylim(-3.2, 3.2); ax_a.set_zlim(-3.2, 3.2)
+        ax_a.set_xlabel(r"$x_1$", labelpad=-2)
+        ax_a.set_ylabel(r"$x_2$", labelpad=-2)
+        ax_a.set_zlabel(r"$x_3$", labelpad=-2)
+        ax_a.view_init(elev=22, azim=42)
+        for lbl in (ax_a.get_xticklabels() + ax_a.get_yticklabels()
+                    + ax_a.get_zticklabels()):
+            lbl.set_fontsize(7)
+        ax_a.legend(fontsize=7, loc="upper left", framealpha=0.9)
+    ax_a.set_title(r"(a) $K=3$ MOEA-FIND archive", fontsize=10)
+
+    # --- Panel (b): K=3 LHS + Sobol reference samples in 3D ---
+    if 3 in data:
+        samples = data[3]["samples"]
+        radius = data[3]["results"].get("feasible_radius", 2.5)
+        _cube_wireframe(ax_b, radius)
+        lhs = samples["lhs"]
+        sobol = samples["sobol"]
+        n_show = min(800, len(lhs), len(sobol))
+        rng = np.random.default_rng(1)
+        idx_l = rng.choice(len(lhs), size=n_show, replace=False)
+        idx_s = rng.choice(len(sobol), size=n_show, replace=False)
+        ax_b.scatter(lhs[idx_l, 0], lhs[idx_l, 1], lhs[idx_l, 2],
+                     s=6, color=COLORS["empirical"], alpha=0.45,
+                     label="LHS")
+        ax_b.scatter(sobol[idx_s, 0], sobol[idx_s, 1], sobol[idx_s, 2],
+                     s=6, color=COLORS["sobol"], alpha=0.45, marker="^",
+                     label="Sobol")
+        ax_b.scatter([3], [3], [3], marker="X",
+                     color=COLORS["anti_ideal"], s=60,
+                     label=r"anti-ideal $D^\star$")
+        ax_b.set_xlim(-3.2, 3.2); ax_b.set_ylim(-3.2, 3.2); ax_b.set_zlim(-3.2, 3.2)
+        ax_b.set_xlabel(r"$x_1$", labelpad=-2)
+        ax_b.set_ylabel(r"$x_2$", labelpad=-2)
+        ax_b.set_zlabel(r"$x_3$", labelpad=-2)
+        ax_b.view_init(elev=22, azim=42)
+        for lbl in (ax_b.get_xticklabels() + ax_b.get_yticklabels()
+                    + ax_b.get_zticklabels()):
+            lbl.set_fontsize(7)
+        ax_b.legend(fontsize=7, loc="upper left", framealpha=0.9)
+    ax_b.set_title(r"(b) $K=3$ LHS + Sobol references", fontsize=10)
 
     # Helper to pull per-K metric series
     def _series(metric_key: str, subkey: str = None):
@@ -596,7 +693,10 @@ def fig4_dimension_sweep(
 
     def _plot_series(ax, Ks, series, ylabel, title):
         for s in sampler_keys:
-            ax.plot(Ks, series[s], "-o", color=sampler_colors[s],
+            ax.plot(Ks, series[s],
+                    linestyle=sampler_linestyles[s],
+                    marker=sampler_markers[s],
+                    color=sampler_colors[s],
                     label=sampler_labels[s], markersize=5, lw=1.4)
         ax.set_xticks(Ks)
         ax.set_xlabel(r"target dimensionality $K$")
@@ -604,25 +704,25 @@ def fig4_dimension_sweep(
         ax.set_title(title, fontsize=10)
         ax.legend(fontsize=7, loc="best", framealpha=0.9)
 
-    # --- Panel (b): mean Manhattan distance from anti-ideal vs K ---
+    # --- Panel (c): mean Manhattan distance from anti-ideal vs K ---
     Ks, ser_mean = _series("dist_from_D*", subkey="mean")
-    _plot_series(ax_b, Ks, ser_mean,
+    _plot_series(ax_c, Ks, ser_mean,
                  r"mean $L^1$ distance from $D^\star$",
-                 r"(b) Manhattan distance to anti-ideal")
+                 r"(c) Manhattan distance to anti-ideal")
 
-    # --- Panel (c): interior mass fraction vs K ---
+    # --- Panel (d): interior mass fraction vs K ---
     Ks, ser_int = _series("interior_fraction")
-    _plot_series(ax_c, Ks, ser_int,
+    _plot_series(ax_d, Ks, ser_int,
                  "interior mass fraction",
-                 "(c) interior mass fraction")
-    ax_c.set_ylim(0.0, 1.0)
+                 "(d) interior mass fraction")
+    ax_d.set_ylim(0.0, 1.0)
 
-    # --- Panel (d): orthant occupancy fraction vs K ---
+    # --- Panel (e): orthant occupancy fraction vs K ---
     Ks, ser_orth = _series("orthant_occupancy", subkey="fraction")
-    _plot_series(ax_d, Ks, ser_orth,
+    _plot_series(ax_e, Ks, ser_orth,
                  "signed orthant occupancy",
-                 r"(d) signed orthant occupancy ($2^K$ orthants)")
-    ax_d.set_ylim(0.0, 1.05)
+                 r"(e) signed orthant occupancy ($2^K$ orthants)")
+    ax_e.set_ylim(0.0, 1.05)
 
     return fig
 

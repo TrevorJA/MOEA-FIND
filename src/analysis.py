@@ -1,7 +1,73 @@
 """Post-processing and visualization for MOEA-FIND experiments."""
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 import numpy as np
+
+
+def pick_space_filling_subset(
+    points: np.ndarray,
+    n: int,
+    seed: int = 42,
+) -> np.ndarray:
+    """Pick ``n`` indices from *points* that are approximately space-filling.
+
+    Used to select a small, reproducible subset of the Pareto archive for
+    the dev-ensemble smoke test. Algorithm: draw a Latin Hypercube over
+    the axis-aligned bounding box of *points*, then for each LHS anchor
+    pick the nearest not-yet-used point from *points*.
+
+    Args:
+        points: ``(N, D)`` array of candidate coordinates.
+        n: Number of indices to return. Must satisfy ``n <= N``.
+        seed: LHS random seed.
+
+    Returns:
+        1D array of ``n`` unique indices into *points*.
+    """
+    from scipy.spatial import cKDTree
+    from scipy.stats.qmc import LatinHypercube
+
+    pts = np.asarray(points, dtype=float)
+    N, D = pts.shape
+    if n > N:
+        raise ValueError(f"requested {n} points but only {N} available")
+    if n == N:
+        return np.arange(N)
+
+    lb = pts.min(axis=0)
+    ub = pts.max(axis=0)
+    # Guard against degenerate axes (all-equal)
+    ub = np.where(ub <= lb, lb + 1e-9, ub)
+
+    sampler = LatinHypercube(d=D, seed=seed)
+    anchors = lb + sampler.random(n=n) * (ub - lb)
+
+    tree = cKDTree(pts)
+    chosen: list = []
+    used = set()
+    # For each anchor, query a small k, pick the first not-yet-used hit.
+    k_pool = min(max(8, n // 4), N)
+    for anchor in anchors:
+        _, idxs = tree.query(anchor, k=k_pool)
+        idxs = np.atleast_1d(idxs)
+        for i in idxs:
+            i = int(i)
+            if i not in used:
+                used.add(i)
+                chosen.append(i)
+                break
+        else:
+            # Pool exhausted of unused neighbors; fall back to global search
+            mask = np.ones(N, dtype=bool)
+            mask[list(used)] = False
+            remaining_idx = np.where(mask)[0]
+            if len(remaining_idx) == 0:
+                break
+            d2 = ((pts[remaining_idx] - anchor) ** 2).sum(axis=1)
+            pick = int(remaining_idx[np.argmin(d2)])
+            used.add(pick)
+            chosen.append(pick)
+    return np.array(chosen, dtype=int)
 
 
 def generate_lhs_samples(

@@ -61,9 +61,9 @@ def _arrow(ax, start: Tuple[float, float], end: Tuple[float, float],
 
 
 def fig3_wrapper_schematic(
-    figsize: Tuple[float, float] = (7.0, 3.6),
+    figsize: Tuple[float, float] = (10.0, 4.6),
 ) -> plt.Figure:
-    """Manuscript Figure 3 — KirschBorgWrapper control flow.
+    """Manuscript Figure 2 / 3 — KirschBorgWrapper control flow.
 
     Pure matplotlib schematic. Boxes for:
         Borg MOEA → wrapper DV decoder → Kirsch-Nowak generator →
@@ -78,8 +78,8 @@ def fig3_wrapper_schematic(
     """
     apply_style()
     fig, ax = plt.subplots(figsize=figsize)
-    ax.set_xlim(0, 10)
-    ax.set_ylim(0, 5.6)
+    ax.set_xlim(0, 14)
+    ax.set_ylim(0, 6.0)
     ax.set_aspect("equal")
     ax.axis("off")
 
@@ -90,59 +90,77 @@ def fig3_wrapper_schematic(
     c_feat = "#fdbf6f"
     c_obj = COLORS["anti_ideal"]
 
-    _box(ax, (1.0, 4.3), 1.6, 0.7, "Borg MOEA\n(ε-box archive)",
+    # Wider box spacing so arrow labels have room between boxes.
+    box_w_top = 2.2
+    box_w_big = 2.4
+    box_h = 0.8
+    y_top, y_bot = 4.8, 2.6
+
+    _box(ax, (1.4, y_top), box_w_top, box_h, "Borg MOEA\n(ε-box archive)",
          fill="#cfe2f3", edge=c_borg, weight="bold", fontsize=8)
-    _box(ax, (3.2, 4.3), 1.6, 0.7, "KirschBorgWrapper\n(DV decoder)",
+    _box(ax, (5.0, y_top), box_w_top, box_h, "KirschBorgWrapper\n(DV decoder)",
          fill=c_wrap, fontsize=8)
-    _box(ax, (5.4, 4.3), 1.8, 0.7, "Kirsch-Nowak\nbootstrap generator",
+    _box(ax, (8.5, y_top), box_w_big, box_h, "Kirsch-Nowak\nbootstrap generator",
          fill=c_gen, fontsize=8)
-    _box(ax, (7.8, 4.3), 1.8, 0.7, "SSI-3 +\ndrought feature extractor",
+    _box(ax, (12.0, y_top), box_w_big, box_h,
+         "SSI-3 +\ndrought feature extractor",
          fill=c_feat, fontsize=8)
 
     # -- Bottom row --
-    _box(ax, (7.8, 2.5), 1.8, 0.7,
-         r"L1 accumulator" "\n" r"$f_{k+1} = \sum_j f_j$",
+    _box(ax, (12.0, y_bot), box_w_big, box_h,
+         r"$L^1$ accumulator" "\n" r"$f_{k+1} = \sum_j f_j$",
          fill=c_obj, fontsize=8)
-    _box(ax, (3.2, 2.5), 1.6, 0.7,
+    _box(ax, (5.0, y_bot), box_w_top, box_h,
          r"Objective vector" "\n" r"$(f_1, \ldots, f_{k+1})$",
          fill="#f4cccc", fontsize=8)
 
     # -- Arrows (counterclockwise loop) --
-    _arrow(ax, (1.8, 4.3), (2.4, 4.3), label=r"$\mathbf{x}\in[0,1]^d$")
-    _arrow(ax, (4.0, 4.3), (4.5, 4.3), label="residuals / indices")
-    _arrow(ax, (6.3, 4.3), (6.9, 4.3), label="monthly trace")
-    _arrow(ax, (8.7, 4.3), (8.7, 2.85), label=r"$\mathbf{D}(\mathbf{x})$")
-    _arrow(ax, (6.9, 2.5), (4.0, 2.5), label=r"$f_j = |D_j - D^*_j|$")
-    _arrow(ax, (2.4, 2.5), (1.0, 2.5), label="return")
-    _arrow(ax, (1.0, 2.85), (1.0, 3.95), label="archive update", rad=0.0)
+    # Top-row forward arrows: right edge of src to left edge of dst
+    _arrow(ax, (1.4 + box_w_top / 2, y_top), (5.0 - box_w_top / 2, y_top),
+           label=r"$\mathbf{x}\in[0,1]^d$")
+    _arrow(ax, (5.0 + box_w_top / 2, y_top), (8.5 - box_w_big / 2, y_top),
+           label="residuals / indices")
+    _arrow(ax, (8.5 + box_w_big / 2, y_top), (12.0 - box_w_big / 2, y_top),
+           label="monthly trace")
+    # Vertical down on the right
+    _arrow(ax, (12.0, y_top - box_h / 2), (12.0, y_bot + box_h / 2),
+           label=r"$\mathbf{D}(\mathbf{x})$")
+    # Bottom-row return arrows (right to left)
+    _arrow(ax, (12.0 - box_w_big / 2, y_bot), (5.0 + box_w_top / 2, y_bot),
+           label=r"$f_j = |D_j - D^*_j|$")
+    _arrow(ax, (5.0 - box_w_top / 2, y_bot), (1.4 + box_w_top / 2, y_bot),
+           label="return")
+    # Vertical up on the left (close the loop)
+    _arrow(ax, (1.4, y_bot + box_h / 2), (1.4, y_top - box_h / 2),
+           label="archive update", rad=0.0)
 
     # -- Side callout: DV modes + epsilon vector --
     callout = FancyBboxPatch(
-        (0.15, 0.2), 9.7, 1.5,
+        (0.2, 0.1), 13.6, 1.7,
         boxstyle="round,pad=0.08,rounding_size=0.1",
         linewidth=0.8, edgecolor="#888888",
         facecolor="#f7f7f7", alpha=0.95,
     )
     ax.add_patch(callout)
-    ax.text(0.3, 1.4,
+    ax.text(0.4, 1.55,
             "Decision-variable injection modes",
             fontsize=9, weight="bold", va="top")
-    ax.text(0.3, 1.1,
+    ax.text(0.4, 1.22,
             "  • Residual (main text): "
             r"$p \mapsto \Phi^{-1}(p)$ standardized residual passed through Cholesky + normal-score pipeline",
             fontsize=7, va="top")
-    ax.text(0.3, 0.88,
+    ax.text(0.4, 0.97,
             "  • Index (SI-4): "
             r"$p \mapsto \lfloor p \cdot N_{\mathrm{years}} \rfloor$ historical-year index injected into the resampler",
             fontsize=7, va="top")
-    ax.text(0.3, 0.62,
+    ax.text(0.4, 0.68,
             "Default ε vector: "
             r"$\varepsilon_{\mathrm{severity}}=0.05,\;$"
             r"$\varepsilon_{\mathrm{duration}}=0.05,\;$"
             r"$\varepsilon_{\mathrm{month}}=0.5,\;$"
-            r"$\varepsilon_{L_1}=0.05$",
+            r"$\varepsilon_{L^1}=0.05$",
             fontsize=7, va="top")
-    ax.text(0.3, 0.35,
+    ax.text(0.4, 0.38,
             "Constraints (soft, Deb-style): "
             r"$|\rho_1^{\mathrm{syn}} - \rho_1^{\mathrm{hist}}| < 0.05$, "
             "non-drought annual mean within ±15 % of historical",

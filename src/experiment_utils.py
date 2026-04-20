@@ -27,6 +27,7 @@ from src.objectives import (
 from src.analysis import coverage_metrics
 from src.borg_runner import run_optimization, OptimizationResult
 from src.constraints import ConstraintConfig, ConstraintResult, compute_all_constraints
+from src.constraints_dv import DVUniformityConfig, compute_dv_constraint
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +84,7 @@ def compute_ssi_anti_ideal(
     hist_chars: dict,
     objective_keys: tuple,
     headroom: float = 1.5,
+    feasible_maxes: Optional[Dict[str, float]] = None,
 ) -> np.ndarray:
     """Build the DD-11 anti-ideal point ``D*`` from historical drought chars.
 
@@ -96,22 +98,33 @@ def compute_ssi_anti_ideal(
     Placement rules:
 
     - **Non-cyclic metrics** (``mean_duration``, ``mean_avg_severity``,
-      etc.): ``D*_j = headroom × max_observed D_j`` — a drought worse
-      than the historical record.
+      etc.): ``D*_j = headroom × reference_max`` — where ``reference_max``
+      is either ``hist_chars[max_key]`` (default) or, if
+      ``feasible_maxes[key]`` is provided, that observed Pareto-max. The
+      latter gives a tighter anti-ideal, which concentrates the
+      epsilon-box archive on the actually-reachable drought region and
+      avoids "wasting" Pareto slots on unreachable extremes. Requires a
+      prior MOEA run to supply ``feasible_maxes``.
     - **Cyclic calendar-month metrics**
       (:data:`src.objectives.CYCLIC_MONTH_KEYS`, e.g.
       ``peak_severity_month``): ``D*_j = 12 × headroom`` — a month
       number outside the 1..12 calendar so that any feasible month is
       guaranteed ``D_j <= D*_j``. This placement is load-bearing for the
       hyperplane identity; do not replace it with a month inside
-      ``[1, 12]``.
+      ``[1, 12]``. ``feasible_maxes`` is IGNORED for cyclic keys on
+      purpose: the metric is bounded to [1, 12] by construction, and a
+      tighter D* would break the identity the moment a drought peaks
+      outside the empirically-observed range.
 
     Args:
         hist_chars: Historical drought characteristics dict from
             :func:`src.objectives.compute_ssi_drought_characteristics`.
         objective_keys: Metric keys for objectives.
-        headroom: Multiplier applied to ``max_observed`` for non-cyclic
+        headroom: Multiplier applied to ``reference_max`` for non-cyclic
             metrics and to ``12`` for cyclic-month metrics. Default 1.5.
+        feasible_maxes: Optional ``{objective_key: observed_max}`` dict,
+            typically from :func:`extract_pareto_maxes`. When provided,
+            overrides the historical max for non-cyclic keys only.
 
     Returns:
         Anti-ideal array ``D*`` of length ``len(objective_keys)``.
@@ -133,15 +146,51 @@ def compute_ssi_anti_ideal(
     for key in objective_keys:
         if key in CYCLIC_MONTH_KEYS:
             # Place outside the 1..12 calendar so D_j <= D*_j always holds.
+            # Feasible_maxes is deliberately ignored here — see docstring.
             anti_ideal.append(12.0 * headroom)
         else:
-            max_key = max_key_map.get(key, key)
-            val = hist_chars.get(max_key, 10.0)
+            if feasible_maxes is not None and key in feasible_maxes:
+                val = float(feasible_maxes[key])
+            else:
+                max_key = max_key_map.get(key, key)
+                val = hist_chars.get(max_key, 10.0)
             if val == 0:
                 val = 10.0  # fallback for zero-event case
             anti_ideal.append(val * headroom)
 
     return np.array(anti_ideal)
+
+
+def extract_pareto_maxes(
+    results_json_path: Path,
+    objective_keys: tuple,
+) -> Dict[str, float]:
+    """Read a prior ``results.json`` and return ``{key: max_D_j}`` per objective.
+
+    Used to drive a Pareto-based anti-ideal placement on subsequent runs
+    via :func:`compute_ssi_anti_ideal`'s ``feasible_maxes`` argument.
+
+    Raises ``ValueError`` if ``objective_keys`` don't match the reference
+    file's objective ordering — mismatched objective sets would silently
+    mis-scale D*.
+    """
+    import json
+    payload = json.loads(Path(results_json_path).read_text())
+    ref_keys = tuple(payload.get("objective_keys", ()))
+    if tuple(objective_keys) != ref_keys:
+        raise ValueError(
+            f"objective_keys mismatch: requested {tuple(objective_keys)} but "
+            f"{results_json_path} was run with {ref_keys}. Rebuild the "
+            f"reference run with matching objectives, or drop the --anti-ideal-"
+            f"reference flag to fall back to historical max."
+        )
+    dm = np.asarray(payload.get("drought_metrics", []), dtype=float)
+    if dm.size == 0:
+        raise ValueError(
+            f"{results_json_path} has no drought_metrics (empty Pareto); "
+            f"cannot derive feasible maxes."
+        )
+    return {k: float(dm[:, j].max()) for j, k in enumerate(objective_keys)}
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +295,7 @@ def run_experiment(
     seed: int,
     algorithm: str = "eps_nsga2",
     constraint_cfg: Optional[ConstraintConfig] = None,
+    dv_constraint_cfg: Optional[DVUniformityConfig] = None,
     output_dir: Optional[Path] = None,
     **algo_kwargs,
 ) -> dict:
@@ -270,7 +320,11 @@ def run_experiment(
         algorithm: Backend name (``"borg_mm"``, ``"borg_serial"``,
             ``"eps_nsga2"``). Overridden by ``MOEA_FIND_ALGORITHM`` env var.
         constraint_cfg: Optional :class:`ConstraintConfig`. If None,
-            constraints are disabled (unconstrained run).
+            hydrologic constraints are disabled.
+        dv_constraint_cfg: Optional :class:`DVUniformityConfig` for the
+            DV-space uniformity ablation arm. Mutually exclusive with
+            ``constraint_cfg`` — setting both raises ValueError. If None,
+            DV-space constraint is disabled.
         output_dir: Directory for algorithm runtime/checkpoint files.
             Defaults to a temp directory.
         **algo_kwargs: Forwarded to the backend (e.g. ``n_islands``).
@@ -280,6 +334,12 @@ def run_experiment(
         coverage metrics, and constraint diagnostics.
     """
     np.random.seed(seed)
+
+    if constraint_cfg is not None and dv_constraint_cfg is not None:
+        raise ValueError(
+            "constraint_cfg (hydrologic) and dv_constraint_cfg (DV-space) "
+            "are mutually exclusive. Pass exactly one."
+        )
 
     n_dvs = generator.n_dvs
     n_objs = len(objective_keys) + 1  # +1 for Manhattan norm
@@ -296,6 +356,8 @@ def run_experiment(
     if constraint_cfg is not None:
         enabled = constraint_cfg.enabled
         n_constrs = sum(1 for v in enabled.values() if v)
+    elif dv_constraint_cfg is not None and dv_constraint_cfg.enabled:
+        n_constrs = 1
 
     epsilons = build_epsilons(objective_keys)
 
@@ -333,6 +395,12 @@ def run_experiment(
                 infeasible_count[0] += 1
             # Fold soft penalty into Manhattan norm (last objective)
             objs[-1] += cr.soft_penalty_weighted
+        elif dv_constraint_cfg is not None:
+            cr_dv = compute_dv_constraint(dvs, dv_constraint_cfg)
+            hard_violations = cr_dv.hard_violations
+            if not cr_dv.feasible:
+                infeasible_count[0] += 1
+            objs[-1] += cr_dv.soft_penalty_weighted
 
         return objs, hard_violations
 
@@ -356,7 +424,7 @@ def run_experiment(
     elapsed = opt_result.elapsed_s
     print(f"  Done in {elapsed:.1f}s ({eval_count[0]} evals, "
           f"{elapsed / max(eval_count[0], 1) * 1000:.1f} ms/eval)")
-    if constraint_cfg is not None:
+    if constraint_cfg is not None or dv_constraint_cfg is not None:
         print(f"  Infeasible evals: {infeasible_count[0]} / {eval_count[0]} "
               f"({100 * infeasible_count[0] / max(eval_count[0], 1):.1f}%)")
 
@@ -429,6 +497,9 @@ def run_experiment(
                 syn_1d, syn_2d, constraint_cfg, ssi_calc=prefitted_ssi
             )
             pareto_constraint_diags.append(cr.to_dict())
+        elif dv_constraint_cfg is not None:
+            cr_dv = compute_dv_constraint(dvs_row, dv_constraint_cfg)
+            pareto_constraint_diags.append(cr_dv.to_dict())
 
     result = {
         "mode": generator_name,
@@ -464,8 +535,15 @@ def run_experiment(
         "pareto_traces_2d": pareto_traces_2d,
     }
     if constraint_cfg is not None:
+        result["constraint_mode"] = "hydrologic"
         result["constraint_config"] = constraint_cfg.to_dict()
         result["constraint_diagnostics"] = pareto_constraint_diags
+    elif dv_constraint_cfg is not None:
+        result["constraint_mode"] = "dv_uniform"
+        result["dv_constraint_config"] = dv_constraint_cfg.to_dict()
+        result["constraint_diagnostics"] = pareto_constraint_diags
+    else:
+        result["constraint_mode"] = "none"
 
     return result
 

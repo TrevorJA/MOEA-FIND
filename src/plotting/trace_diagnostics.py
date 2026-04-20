@@ -338,6 +338,132 @@ def plot_flow_duration_curve(
 
 
 # -----------------------------------------------------------------------------
+# Combined hydrology agreement panel (manuscript Figure 5)
+# -----------------------------------------------------------------------------
+def plot_hydrology_panels(
+    synthetic_traces_1d: List[np.ndarray],
+    historical_blocks_1d: List[np.ndarray],
+    synthetic_traces_2d: List[np.ndarray],
+    historical_blocks_2d: List[np.ndarray],
+    max_lag: int = 24,
+    figsize: Tuple[float, float] = (11.0, 7.0),
+) -> Tuple[plt.Figure, np.ndarray]:
+    """Four-panel statistical-agreement figure.
+
+    Panels (2x2):
+      (a) autocorrelation envelope comparison (synthetic vs T-year historical blocks)
+      (b) flow duration curve envelope comparison (log-y)
+      (c) seasonal mean monthly flow envelope comparison
+      (d) seasonal std monthly flow envelope comparison
+
+    Both sides in every panel are rendered as 10-50-90th percentile
+    bands so the comparison is envelope-vs-envelope at matched block
+    length.
+    """
+    apply_style()
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    ax_acf, ax_fdc = axes[0]
+    ax_mean, ax_std = axes[1]
+
+    def _shared_legend(ax):
+        ax.legend(fontsize=7, loc="best", framealpha=0.9)
+
+    # -- (a) ACF envelope --
+    lags = np.arange(max_lag + 1)
+    hist_acfs = np.array([_acf(b, max_lag) for b in historical_blocks_1d])
+    h_lo, h_mid, h_hi = _envelope(hist_acfs)
+    ax_acf.fill_between(
+        lags, h_lo, h_hi, alpha=0.25, color=COLORS["historical"],
+        label=f"historical blocks (n={len(historical_blocks_1d)}, 10-90%)",
+    )
+    ax_acf.plot(lags, h_mid, color=COLORS["historical"], linewidth=2,
+                label="historical median", zorder=10)
+    synth_acfs = np.array([_acf(t, max_lag) for t in synthetic_traces_1d])
+    s_lo, s_mid, s_hi = _envelope(synth_acfs)
+    ax_acf.fill_between(
+        lags, s_lo, s_hi, alpha=0.2, color=COLORS["empirical"],
+        label=f"synthetic (n={len(synth_acfs)}, 10-90%)",
+    )
+    ax_acf.plot(lags, s_mid, "--", color=COLORS["empirical"],
+                linewidth=1.5, label="synthetic median")
+    ax_acf.axhline(0, color="gray", linewidth=0.5, linestyle=":")
+    ax_acf.set_xlabel("lag (months)")
+    ax_acf.set_ylabel("autocorrelation")
+    ax_acf.set_title("(a) autocorrelation")
+    _shared_legend(ax_acf)
+
+    # -- (b) FDC envelope (log-y) --
+    n = len(synthetic_traces_1d[0])
+    grid = np.arange(1, n + 1) / (n + 1)
+    grid_pct = grid * 100
+
+    def stack_fdc(traces: List[np.ndarray]) -> np.ndarray:
+        stacked = np.empty((len(traces), len(grid)))
+        for i, tr in enumerate(traces):
+            e, f = _fdc(tr)
+            stacked[i] = np.interp(grid, e, f)
+        return stacked
+
+    hist_stack = stack_fdc(historical_blocks_1d)
+    h_lo, h_mid, h_hi = _envelope(hist_stack)
+    ax_fdc.fill_between(
+        grid_pct, h_lo, h_hi, alpha=0.25, color=COLORS["historical"],
+        label=f"historical blocks (n={len(historical_blocks_1d)}, 10-90%)",
+    )
+    ax_fdc.semilogy(grid_pct, h_mid, color=COLORS["historical"], linewidth=2,
+                    label="historical median", zorder=10)
+    syn_stack = stack_fdc(synthetic_traces_1d)
+    s_lo, s_mid, s_hi = _envelope(syn_stack)
+    ax_fdc.fill_between(
+        grid_pct, s_lo, s_hi, alpha=0.2, color=COLORS["empirical"],
+        label=f"synthetic (n={len(synthetic_traces_1d)}, 10-90%)",
+    )
+    ax_fdc.semilogy(grid_pct, s_mid, "--", color=COLORS["empirical"],
+                    linewidth=1.5, label="synthetic median")
+    ax_fdc.set_xlabel("exceedance probability (%)")
+    ax_fdc.set_ylabel("flow (cfs)")
+    ax_fdc.set_title("(b) flow duration curve")
+    _shared_legend(ax_fdc)
+
+    # -- (c) Seasonal mean; (d) seasonal std --
+    months = np.arange(12)
+    h_means = np.array([b.mean(axis=0) for b in historical_blocks_2d])
+    h_stds = np.array([b.std(axis=0, ddof=1) for b in historical_blocks_2d])
+    syn_means = np.array([t.mean(axis=0) for t in synthetic_traces_2d])
+    syn_stds = np.array([t.std(axis=0, ddof=1) for t in synthetic_traces_2d])
+
+    for ax, hist_stat, syn_stat, ylabel, title in [
+        (ax_mean, h_means, syn_means, "mean monthly flow (cfs)",
+         "(c) seasonal mean"),
+        (ax_std, h_stds, syn_stds, "std monthly flow (cfs)",
+         "(d) seasonal variability"),
+    ]:
+        p_lo, p_mid, p_hi = _envelope(hist_stat)
+        ax.fill_between(
+            months, p_lo, p_hi, alpha=0.25, color=COLORS["historical"],
+            label=f"historical blocks (n={len(hist_stat)}, 10-90%)",
+        )
+        ax.plot(months, p_mid, "o-", color=COLORS["historical"],
+                linewidth=2, markersize=5,
+                label="historical median", zorder=10)
+        s_lo, s_mid, s_hi = _envelope(syn_stat)
+        ax.fill_between(
+            months, s_lo, s_hi, alpha=0.2, color=COLORS["empirical"],
+            label=f"synthetic (n={len(syn_stat)}, 10-90%)",
+        )
+        ax.plot(months, s_mid, "--", color=COLORS["empirical"],
+                linewidth=1.5, label="synthetic median")
+        ax.set_xticks(months)
+        ax.set_xticklabels(WATER_YEAR_MONTHS, rotation=45, fontsize=8)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        _shared_legend(ax)
+
+    fig.tight_layout()
+    return fig, axes
+
+
+# -----------------------------------------------------------------------------
 # Figure 5 — SSI-3 drought metric definitions example
 # -----------------------------------------------------------------------------
 #

@@ -43,6 +43,7 @@ from src.experiment_utils import (  # noqa: E402
     prepare_data,
     compute_historical_ssi_chars,
     compute_ssi_anti_ideal,
+    extract_pareto_maxes,
     run_experiment,
     make_variant_slug,
 )
@@ -111,6 +112,12 @@ def main():
                    help="MOEA backend. Overridden by MOEA_FIND_ALGORITHM env var.")
     p.add_argument("--constraints-json", type=Path, default=cfg.constraints_json,
                    help="Path to calibrated_tolerances.json from Block A.")
+    p.add_argument("--anti-ideal-reference", type=Path,
+                   default=cfg.anti_ideal_reference_json,
+                   help="Path to a prior results.json whose Pareto max "
+                        "drives D* placement for NON-cyclic objectives. "
+                        "Cyclic metrics still use 12*headroom. If unset, "
+                        "D* falls back to historical_max*headroom.")
     p.add_argument("--site-label", default=cfg.site_label)
     p.add_argument("--n-islands", type=int, default=cfg.n_islands,
                    help="Number of islands for MM Borg.")
@@ -150,10 +157,22 @@ def main():
     ssi_hist, ssi_calc, hist_chars = compute_historical_ssi_chars(
         monthly_1d, args.ssi
     )
+    feasible_maxes = None
+    if args.anti_ideal_reference is not None:
+        ref = Path(args.anti_ideal_reference)
+        if ref.exists():
+            feasible_maxes = extract_pareto_maxes(ref, objective_keys)
+            print(f"[04] anti-ideal reference from {ref}")
+            print(f"     Pareto maxes: {feasible_maxes}")
+        else:
+            print(f"[04] WARNING: --anti-ideal-reference {ref} not found; "
+                  f"falling back to historical-max D*.")
+
     anti_ideal = compute_ssi_anti_ideal(
         hist_chars,
         objective_keys,
         headroom=cfg.anti_ideal_headroom,
+        feasible_maxes=feasible_maxes,
     )
     print(f"[04] historical SSI-{args.ssi}: n={hist_chars['n_events']}, "
           f"dur={hist_chars['mean_duration']:.1f}mo, "
@@ -243,6 +262,7 @@ def main():
             from src.plotting.trace_diagnostics import (
                 plot_autocorrelation_comparison,
                 plot_flow_duration_curve,
+                plot_hydrology_panels,
                 plot_seasonal_cycle_comparison,
             )
 
@@ -354,6 +374,13 @@ def main():
                 )
                 fig_sc.savefig(fig_dir / "fig06c_seasonal.pdf", dpi=300)
                 plt.close(fig_sc)
+
+                fig_hy, _ = plot_hydrology_panels(
+                    traces_1d, hist_blocks_1d, traces_2d, hist_blocks_2d,
+                )
+                fig_hy.savefig(fig_dir / "fig05_hydrology.pdf", dpi=300,
+                               bbox_inches="tight")
+                plt.close(fig_hy)
 
                 print(f"[04] wrote trace diagnostics to {fig_dir}")
 
