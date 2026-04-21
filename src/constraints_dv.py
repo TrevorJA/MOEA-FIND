@@ -49,7 +49,7 @@ from scipy.stats import qmc
 from src.constraints import ConstraintResult, Violation, _two_tier
 
 
-VALID_STATISTICS = ("l2_star", "ks")
+VALID_STATISTICS = ("l2_star", "ks", "ad")
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +173,10 @@ def dv_ks_statistic(dvs: np.ndarray) -> float:
     """One-sample KS statistic of the flattened DVs vs ``U[0, 1]``.
 
     Range: ``[0, 1]``. Equals 0 when the empirical CDF matches the uniform
-    CDF exactly at every order-statistic.
+    CDF exactly at every order-statistic. Measures the maximum gap between
+    empirical and theoretical CDFs — relatively insensitive to local tail
+    clustering because tails contribute to a single gap rather than
+    multiple ones.
     """
     x = np.asarray(dvs, dtype=float).reshape(-1)
     if x.size == 0:
@@ -182,12 +185,45 @@ def dv_ks_statistic(dvs: np.ndarray) -> float:
     return float(stats.kstest(x, "uniform").statistic)
 
 
+def dv_anderson_darling_statistic(dvs: np.ndarray) -> float:
+    """Anderson-Darling ``A²`` statistic of flattened DVs vs ``U[0, 1]``.
+
+    The AD weighting ``1 / [F(x) · (1 - F(x))]`` diverges at the
+    boundaries, so this statistic is explicitly *tail-weighted*: small
+    numbers of DVs clustered near 0 or 1 inflate A² more than comparable
+    clustering in the middle of [0, 1]. Complementary to L2-star
+    (integrates squared discrepancy uniformly) and KS (max single gap).
+
+    Closed form for ``F = U[0, 1]``:
+
+        A² = -n - (1/n) · Σ_{i=1..n} (2i − 1) · [ln(x_{(i)}) + ln(1 − x_{(n+1−i)})]
+
+    where ``x_{(1)} ≤ ... ≤ x_{(n)}`` are the sorted DVs. Under the null
+    (samples truly ``U[0, 1]``), ``A²`` is ≈ 1 on average with a 95th
+    percentile around 2.5 — bootstrap calibration picks up the
+    finite-sample envelope.
+    """
+    x = np.asarray(dvs, dtype=float).reshape(-1)
+    n = x.size
+    if n == 0:
+        return 0.0
+    # Clip inward to avoid log(0) / log(negative) at the sorted extremes.
+    eps = 1e-12
+    x_sorted = np.clip(np.sort(x), eps, 1.0 - eps)
+    i = np.arange(1, n + 1, dtype=float)
+    log_terms = np.log(x_sorted) + np.log(1.0 - x_sorted[::-1])
+    a2 = -n - np.sum((2.0 * i - 1.0) * log_terms) / n
+    return float(a2)
+
+
 def statistic_fn(name: str):
     """Return the statistic function for ``name``; raise on unknown names."""
     if name == "l2_star":
         return dv_l2_star_statistic
     if name == "ks":
         return dv_ks_statistic
+    if name == "ad":
+        return dv_anderson_darling_statistic
     raise ValueError(
         f"Unknown DV-uniformity statistic {name!r}; "
         f"expected one of {VALID_STATISTICS}"

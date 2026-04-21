@@ -165,7 +165,7 @@ class ExperimentConfig:
     # Default constraint_mode is "hydrologic" so every existing run is
     # unchanged. "dv_uniform" swaps in a single DV-space constraint and
     # ignores ``constraints_json``. "none" disables all constraints.
-    constraint_mode: str = "hydrologic"
+    constraint_mode: str = "dv_uniform"
     dv_uniformity_json: Optional[Path] = field(
         default_factory=lambda: (
             PROJECT_ROOT
@@ -174,7 +174,7 @@ class ExperimentConfig:
             / "calibrated_dv_tolerances.json"
         )
     )
-    dv_uniformity_statistic: str = "l2_star"
+    dv_uniformity_statistic: str = "ad"
 
     # Site
     site_label: str = "cannonsville"

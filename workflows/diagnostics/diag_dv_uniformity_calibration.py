@@ -152,10 +152,12 @@ def main():
     p.add_argument("--dv-mode", choices=["residual", "index"], default="residual",
                    help="DV injection mode. Controls n_dvs: residual => "
                         "12*T DVs; index => 12*(T+1) DVs.")
-    p.add_argument("--statistic", default="both",
-                   choices=("both",) + VALID_STATISTICS,
-                   help="Which statistic(s) to calibrate. 'both' writes "
-                        "entries for l2_star and ks.")
+    p.add_argument("--statistic", default="all",
+                   choices=("all", "both") + VALID_STATISTICS,
+                   help="Which statistic(s) to calibrate. 'all' (default) "
+                        "writes entries for every statistic in "
+                        "VALID_STATISTICS. 'both' is an alias kept for "
+                        "back-compat with earlier scripts.")
     p.add_argument("--seed", type=int, default=20260420)
     p.add_argument("--site-label", default="cannonsville",
                    help="Top-level label in the output JSON keys.")
@@ -178,7 +180,9 @@ def main():
     }, indent=2))
 
     which: List[str] = (
-        list(VALID_STATISTICS) if args.statistic == "both" else [args.statistic]
+        list(VALID_STATISTICS)
+        if args.statistic in ("all", "both")
+        else [args.statistic]
     )
     print(f"[dv-calib] n_dvs={n_dvs} (T={args.T}, mode={args.dv_mode}), "
           f"n_boot={args.n_boot}, statistics={which}")

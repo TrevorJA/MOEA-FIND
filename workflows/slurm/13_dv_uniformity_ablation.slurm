@@ -6,11 +6,12 @@
 #SBATCH --nodes=3
 #SBATCH --ntasks-per-node=40
 #SBATCH --exclusive
-#SBATCH --array=0-5
+#SBATCH --array=0-8
 # Manuscript Supporting Information: DV-uniformity ablation (script 13).
 # Array index maps to (arm, seed):
 #   0..2 -> hydrologic x {42, 101, 2026}
-#   3..5 -> dv_uniform x {42, 101, 2026}
+#   3..5 -> dv_uniform (l2_star) x {42, 101, 2026}
+#   6..8 -> dv_uniform (ad) x {42, 101, 2026}
 # Each task: independent MM Borg MPI run, identical NFE / DV length / mode.
 #
 # Preconditions (both calibrations must exist before submitting):
@@ -34,24 +35,25 @@ moea_setup
 export MOEA_FIND_ALGORITHM=borg_mm
 export OMP_NUM_THREADS=1
 
-ARMS=(hydrologic hydrologic hydrologic dv_uniform dv_uniform dv_uniform)
-SEEDS=(42 101 2026 42 101 2026)
+ARMS=(hydrologic hydrologic hydrologic dv_uniform dv_uniform dv_uniform dv_uniform dv_uniform dv_uniform)
+SEEDS=(42 101 2026 42 101 2026 42 101 2026)
+STATISTICS=(l2_star l2_star l2_star l2_star l2_star l2_star ad ad ad)
 
 IDX="${SLURM_ARRAY_TASK_ID:-0}"
 ARM="${ARMS[$IDX]}"
 SEED="${SEEDS[$IDX]}"
+STATISTIC="${STATISTICS[$IDX]}"
 
-: "${BORG_NFE:=500000}"
+: "${BORG_NFE:=200000}"
 : "${BORG_MODE:=residual}"
 : "${N_YEARS:=20}"
 : "${SSI_TIMESCALE:=3}"
 : "${N_ISLANDS:=1}"
 : "${CHECKPOINT_FREQ:=10000}"
-: "${DV_STATISTIC:=l2_star}"
 
 PY_ARGS=(
     --arm "${ARM}"
-    --statistic "${DV_STATISTIC}"
+    --statistic "${STATISTIC}"
     --algorithm borg_mm
     --nfe "${BORG_NFE}"
     --seed "${SEED}"

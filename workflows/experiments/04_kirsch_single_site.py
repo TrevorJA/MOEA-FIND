@@ -2,28 +2,40 @@
 
 Couples Borg MOEA (or EpsNSGAII dev fallback) to the validated SynHydro
 Kirsch-Nowak generator via KirschBorgWrapper. Supports both DV injection
-modes (index, residual), SSI-based drought objectives, and bootstrap-
-calibrated plausibility constraints.
+modes (index, residual), SSI-based drought objectives, and two constraint
+regimes:
+
+    --constraint-mode dv_uniform  (production default)
+        A single DV-space uniformity constraint using the Anderson-Darling
+        statistic. Calibrated via bootstrap U[0,1] draws so the tolerance
+        allows any configuration reachable from a uniform DV distribution.
+        Chosen over the hydrologic 5-constraint set because it yields
+        comparable drought-space coverage with tighter, more interpretable
+        constraint geometry (see design_decisions.md §DD-13).
+
+    --constraint-mode hydrologic  (retained for SI ablation comparison)
+        Five-statistic plausibility formulation (annual mean, annual CV,
+        lag-1 AC, non-drought mean, seasonal cycle) calibrated against
+        historical Cannonsville flows. Used in the exp13/14 ablation.
+
+    --constraint-mode none
+        No constraints. Not used in any production or SI run.
 
 Algorithm selection order:
     1. ``--algorithm`` CLI arg
     2. ``MOEA_FIND_ALGORITHM`` env var  (set by slurm scripts)
     3. Default: ``eps_nsga2`` (safe for local testing)
 
-Constraint loading:
-    If ``--constraints-json`` points to the output of
-    ``scripts/diag_constraint_calibration.py``, calibrated tolerances are
-    loaded. Otherwise constraints are disabled and a warning is printed.
-
 Run locally (serial EpsNSGAII, unconstrained, 20 000 NFE):
-    python scripts/04_kirsch_single_site.py --nfe 20000 --mode residual --plot
+    python workflows/experiments/04_kirsch_single_site.py --nfe 20000 \\
+        --constraint-mode none --plot
 
-Run locally with placeholder constraints:
-    python scripts/04_kirsch_single_site.py --nfe 20000 --mode residual \\
-        --constraints-json outputs/diag_constraint_calibration/calibrated_tolerances.json
+Run with AD constraint (matches production):
+    python workflows/experiments/04_kirsch_single_site.py --nfe 20000 \\
+        --constraint-mode dv_uniform --statistic ad
 
-Run on HPC (MM Borg via MPI, constraints, 500 000 NFE):
-    sbatch scripts/04_kirsch_single_site.slurm
+Run on HPC (MM Borg via MPI, AD constraint, 200 000 NFE):
+    sbatch --export=ALL,BORG_NFE=200000 workflows/slurm/04_kirsch_single_site.slurm
 """
 
 from __future__ import annotations
@@ -49,6 +61,7 @@ from src.experiment_utils import (  # noqa: E402
 )
 from src.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
 from src.constraints import ConstraintConfig  # noqa: E402
+from src.constraints_dv import DVUniformityConfig, VALID_STATISTICS  # noqa: E402
 
 OUTPUT_SLUG = "exp04_kirsch_single_site"
 
@@ -65,7 +78,7 @@ def _build_kirsch_generator(monthly_2d: np.ndarray):
     return gen
 
 
-def _load_constraints(
+def _load_hydrologic_constraints(
     json_path: Path | None,
     site_label: str,
     T_years: int,
@@ -82,7 +95,7 @@ def _load_constraints(
         cfg = ConstraintConfig.from_calibration_json(
             json_path, site_label=site_label, T_years=T_years,
         )
-        print(f"[04] Loaded constraints from {json_path}")
+        print(f"[04] Loaded hydrologic constraints from {json_path}")
         print(f"     annual_mean_tol={cfg.annual_mean_tol:.3f}, "
               f"annual_cv_tol={cfg.annual_cv_tol:.3f}, "
               f"lag1_ac_tol={cfg.lag1_ac_tol:.3f}, "
@@ -93,6 +106,31 @@ def _load_constraints(
         print(f"[04] WARNING: failed to load constraints: {exc}; "
               f"running unconstrained.")
         return None
+
+
+def _load_dv_constraint(
+    json_path: Path | None,
+    site_label: str,
+    T_years: int,
+    statistic: str,
+) -> DVUniformityConfig | None:
+    """Load calibrated DVUniformityConfig if JSON exists, else return None."""
+    if json_path is None:
+        print("[04] WARNING: dv_uniform constraint selected but no JSON supplied; "
+              "running unconstrained.")
+        return None
+    json_path = Path(json_path)
+    if not json_path.exists():
+        print(f"[04] WARNING: DV-uniformity JSON not found at {json_path}; "
+              f"running unconstrained.")
+        return None
+    cfg = DVUniformityConfig.from_calibration_json(
+        json_path, site_label=site_label, T_years=T_years, statistic=statistic,
+    )
+    print(f"[04] Loaded DV-uniformity constraint (AD) from {json_path}")
+    print(f"     statistic={cfg.statistic}, tol={cfg.tolerance:.4g}, "
+          f"n_dvs={cfg.n_dvs}")
+    return cfg
 
 
 def main():
@@ -110,8 +148,17 @@ def main():
     p.add_argument("--algorithm", default=cfg.algorithm,
                    choices=["borg_mm", "borg_serial", "eps_nsga2"],
                    help="MOEA backend. Overridden by MOEA_FIND_ALGORITHM env var.")
+    p.add_argument("--constraint-mode",
+                   choices=["dv_uniform", "hydrologic", "none"],
+                   default=cfg.constraint_mode,
+                   help="Which constraint regime to use. Production default: dv_uniform.")
+    p.add_argument("--statistic", default=cfg.dv_uniformity_statistic,
+                   choices=VALID_STATISTICS,
+                   help="DV-uniformity statistic (only used when --constraint-mode=dv_uniform).")
+    p.add_argument("--dv-uniformity-json", type=Path, default=cfg.dv_uniformity_json,
+                   help="Path to calibrated_dv_tolerances.json (dv_uniform mode).")
     p.add_argument("--constraints-json", type=Path, default=cfg.constraints_json,
-                   help="Path to calibrated_tolerances.json from Block A.")
+                   help="Path to calibrated_tolerances.json (hydrologic mode).")
     p.add_argument("--anti-ideal-reference", type=Path,
                    default=cfg.anti_ideal_reference_json,
                    help="Path to a prior results.json whose Pareto max "
@@ -130,18 +177,35 @@ def main():
     args = p.parse_args()
 
     # --- Constraints (load early — needed for variant slug) ---
-    constraint_cfg = _load_constraints(
-        args.constraints_json, args.site_label, args.n_years,
-    )
-    constrained = constraint_cfg is not None
+    constraint_cfg = None
+    dv_constraint_cfg = None
+    if args.constraint_mode == "dv_uniform":
+        dv_constraint_cfg = _load_dv_constraint(
+            args.dv_uniformity_json, args.site_label, args.n_years, args.statistic,
+        )
+        constrained = dv_constraint_cfg is not None
+    elif args.constraint_mode == "hydrologic":
+        constraint_cfg = _load_hydrologic_constraints(
+            args.constraints_json, args.site_label, args.n_years,
+        )
+        constrained = constraint_cfg is not None
+    else:
+        constrained = False
 
     # --- Output directory keyed by variant slug ---
+    slug_extra: dict = {}
+    if args.constraint_mode == "dv_uniform":
+        slug_extra["cm"] = "dv_uniform"
+        slug_extra["st"] = args.statistic
+    elif args.constraint_mode == "hydrologic":
+        slug_extra["cm"] = "hydrologic"
     slug = make_variant_slug(
         mode=args.mode,
         n_years=args.n_years,
         nfe=args.nfe,
         seed=args.seed,
         constrained=constrained,
+        extra=slug_extra if slug_extra else None,
     )
     out = args.output_dir / slug
     out.mkdir(parents=True, exist_ok=True)
@@ -198,7 +262,10 @@ def main():
         "ssi": args.ssi,
         "mode": args.mode,
         "constrained": constrained,
+        "constraint_mode": args.constraint_mode,
+        "statistic": args.statistic if args.constraint_mode == "dv_uniform" else None,
         "constraints_json": str(args.constraints_json) if args.constraints_json else None,
+        "dv_uniformity_json": str(args.dv_uniformity_json) if args.dv_uniformity_json else None,
         "n_islands": args.n_islands,
     }, indent=2))
 
@@ -224,6 +291,7 @@ def main():
         seed=args.seed,
         algorithm=args.algorithm,
         constraint_cfg=constraint_cfg,
+        dv_constraint_cfg=dv_constraint_cfg,
         output_dir=out,
         **algo_kwargs,
     )

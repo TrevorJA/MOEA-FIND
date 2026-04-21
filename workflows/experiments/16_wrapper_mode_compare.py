@@ -1,30 +1,30 @@
-"""Script 14 — DV-uniformity ablation comparison and SI figure set.
+"""Script 16 — Kirsch wrapper-mode comparison and SI figure set.
 
-Loads every ``results.json`` written by ``13_dv_uniformity_ablation.py`` under
-``outputs/exp13_dv_uniformity_ablation/{hydrologic,dv_uniform}/...``, pools
-the Pareto archive across seeds within each arm, and renders the SI figures:
+Loads every ``results.json`` written by ``15_wrapper_mode_ablation.py`` under
+``outputs/exp15_wrapper_mode_ablation/{index,residual}/...``, pools the Pareto
+archive across seeds within each mode, and renders the SI figures:
 
-    figSI_ablation_pareto_2d.pdf         — side-by-side drought-space Pareto
-    figSI_ablation_pareto_3d.pdf         — same in 3D (if >=3 objectives)
-    figSI_ablation_manhattan_dist.pdf    — Manhattan-objective distribution
-    figSI_ablation_hydrology_panels.pdf  — ACF / FDC / seasonal panel
-    figSI_ablation_per_arm_timeseries_stats.pdf  — per-trace stat boxplots
-    figSI_ablation_dv_distributions.pdf  — DV QQ + histogram per arm
-    figSI_ablation_infeasibility_bar.pdf — final infeasibility per arm
+    figSI_wrapper_pareto_2d.pdf         — side-by-side drought-space Pareto
+    figSI_wrapper_pareto_3d.pdf         — same in 3D (if >=3 objectives)
+    figSI_wrapper_manhattan_dist.pdf    — Manhattan-objective distribution
+    figSI_wrapper_hydrology_panels.pdf  — ACF / FDC / seasonal panel
+    figSI_wrapper_per_trace_stats.pdf   — per-trace stat boxplots
+    figSI_wrapper_dv_distributions.pdf  — DV QQ + histogram per mode
+    figSI_wrapper_dv_tail_mass.pdf      — DV tail-mass comparison
 
-Also writes ``comparison_summary.json`` with the falsification checklist
+Also writes ``wrapper_comparison_summary.json`` with the comparison checklist
 values (max-duration ratio, max-severity ratio, median Manhattan distance,
 hyperplane identity, infeasibility rates) so the check is machine-readable.
 
-Both arms must produce at least one Pareto archive under
-``outputs/exp13_dv_uniformity_ablation/`` or the script warns and emits
+Both modes must produce at least one Pareto archive under
+``outputs/exp15_wrapper_mode_ablation/`` or the script warns and emits
 whatever figures are possible.
 
 Run serially (no MPI, no SLURM required for local execution):
-    python workflows/experiments/14_dv_uniformity_compare.py
+    python workflows/experiments/16_wrapper_mode_compare.py
 
 Or via SLURM:
-    sbatch workflows/slurm/14_dv_uniformity_compare.slurm
+    sbatch workflows/slurm/16_wrapper_mode_compare.slurm
 """
 
 from __future__ import annotations
@@ -47,23 +47,14 @@ from src.experiment_utils import (  # noqa: E402
 )
 from src.experiment_config import DEFAULT_EXPERIMENT  # noqa: E402
 
-INPUT_SLUG = "exp13_dv_uniformity_ablation"
-OUTPUT_SLUG = "exp14_dv_uniformity_compare"
+INPUT_SLUG = "exp15_wrapper_mode_ablation"
+OUTPUT_SLUG = "exp16_wrapper_mode_compare"
 
-# Logical arms for stratified comparison. The on-disk layout has two arm
-# directories (hydrologic/, dv_uniform/) but dv_uniform/ may contain runs
-# with different DV-uniformity statistics (l2_star, ks). We split those into
-# separate logical arms so the figures can show the statistic's effect
-# without pooling it away. "dv_uniform" remains available as a legacy
-# aggregate when no stratification is requested.
-DEFAULT_ARMS: Tuple[str, ...] = ("hydrologic", "dv_l2_star", "dv_ks", "dv_ad")
+DEFAULT_ARMS: Tuple[str, ...] = ("index", "residual")
 
 _LOGICAL_ARM_SPEC: Dict[str, Dict[str, Any]] = {
-    "hydrologic": {"disk_arm": "hydrologic", "require_statistic": None},
-    "dv_uniform": {"disk_arm": "dv_uniform", "require_statistic": None},
-    "dv_l2_star": {"disk_arm": "dv_uniform", "require_statistic": "l2_star"},
-    "dv_ks":      {"disk_arm": "dv_uniform", "require_statistic": "ks"},
-    "dv_ad":      {"disk_arm": "dv_uniform", "require_statistic": "ad"},
+    "index":    {"disk_arm": "index",    "require_statistic": None},
+    "residual": {"disk_arm": "residual", "require_statistic": None},
 }
 
 
@@ -82,16 +73,10 @@ def _load_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text())
 
 
-def _result_statistic(r: Dict[str, Any]) -> Optional[str]:
-    """Return the DV-uniformity statistic for a results dict, or None."""
-    dv_cfg = r.get("dv_constraint_config") or {}
-    return dv_cfg.get("statistic")
-
-
 # ---------------------------------------------------------------------------
 # Per-trace statistic helpers (parallel to src/constraints.py primitives but
 # returning raw magnitudes rather than deviations, since we want to compare
-# each arm to the historical distribution directly).
+# each mode to the historical distribution directly).
 # ---------------------------------------------------------------------------
 
 def _annual_mean(trace: np.ndarray) -> float:
@@ -164,10 +149,8 @@ def main():
                         "threshold. Use to exclude smoke-test runs from the "
                         "production comparison pool.")
     p.add_argument("--arms", nargs="+", default=list(DEFAULT_ARMS),
-                   help="Which logical arms to compare. Options: "
-                        "hydrologic, dv_uniform (legacy aggregate), "
-                        "dv_l2_star, dv_ks, dv_ad. Default is the four-way "
-                        "hydrologic/dv_l2_star/dv_ks/dv_ad comparison.")
+                   help="Which wrapper modes to compare. Options: "
+                        "index, residual. Default is both.")
     p.add_argument("--kirsch-library-dir", type=Path,
                    default=PROJECT_ROOT / "outputs" / "exp05_kirsch_library",
                    help="Directory containing exp05 Kirsch library "
@@ -194,29 +177,20 @@ def main():
     for arm in ARMS:
         spec = _LOGICAL_ARM_SPEC[arm]
         disk_arm = spec["disk_arm"]
-        require_stat = spec["require_statistic"]
         files = _iter_arm_result_files(args.input_dir, disk_arm)
-        tag = f"disk_arm={disk_arm}"
-        if require_stat:
-            tag += f" statistic={require_stat}"
-        print(f"[14] arm={arm} ({tag}) found {len(files)} results.json files")
+        print(f"[16] arm={arm} (disk_arm={disk_arm}) found "
+              f"{len(files)} results.json files")
         for f in files:
             try:
                 r = _load_json(f)
             except Exception as exc:
-                print(f"[14] WARNING: failed to load {f}: {exc}")
+                print(f"[16] WARNING: failed to load {f}: {exc}")
                 continue
             nfe = int(r.get("nfe", 0))
             if nfe < args.min_nfe:
-                print(f"[14]   skipping {f} "
+                print(f"[16]   skipping {f} "
                       f"(nfe={nfe} < min_nfe={args.min_nfe})")
                 continue
-            if require_stat is not None:
-                got = _result_statistic(r)
-                if got != require_stat:
-                    print(f"[14]   skipping {f} "
-                          f"(statistic={got!r} != {require_stat!r})")
-                    continue
             arm_results[arm].append(r)
 
     # ------------------------------------------------------------------
@@ -258,13 +232,13 @@ def main():
         if parts:
             pooled_manhattan[a] = np.concatenate(parts)
 
-    print(f"[14] pool summary:")
+    print(f"[16] pool summary:")
     for a in ARMS:
         print(f"     {a}: {len(pooled_traces_1d[a])} Pareto traces "
               f"(across {len(arm_results[a])} seeds)")
 
     # ------------------------------------------------------------------
-    # Historical baseline (same for both arms)
+    # Historical baseline (same for both modes)
     # ------------------------------------------------------------------
     cfg = DEFAULT_EXPERIMENT
     n_years = cfg.n_years_out
@@ -302,9 +276,6 @@ def main():
     )
 
     # Median T-block point for plotting (T-block scale, not full-record).
-    # Using the full-record hist_chars as a "historical point" on Pareto
-    # scatter is misleading because it spans 70+ years (37 drought events)
-    # vs. 20-year synthetic traces, producing an out-of-range location.
     hist_block_median = np.median(hist_block_chars, axis=0)
 
     # Kirsch library reference cloud from exp05 (random unconstrained traces)
@@ -326,15 +297,15 @@ def main():
                 kirsch_chars = k_all_vals[:, obj_indices]
                 kirsch_cloud_2d = kirsch_chars[:, :2]
                 kirsch_cloud_3d = kirsch_chars[:, :3] if len(obj_indices) >= 3 else None
-                print(f"[14] loaded Kirsch library: {k_all_vals.shape[0]} traces")
+                print(f"[16] loaded Kirsch library: {k_all_vals.shape[0]} traces")
             else:
                 missing = [k for k, j in zip(objective_keys, obj_indices) if j is None]
-                print(f"[14] WARNING: Kirsch library missing keys {missing}, "
+                print(f"[16] WARNING: Kirsch library missing keys {missing}, "
                       "skipping reference panel")
         except Exception as exc:
-            print(f"[14] WARNING: could not load Kirsch library: {exc}")
+            print(f"[16] WARNING: could not load Kirsch library: {exc}")
     else:
-        print(f"[14] Kirsch library not found at {kirsch_lib_path}, "
+        print(f"[16] Kirsch library not found at {kirsch_lib_path}, "
               "reference panel will show only historical T-blocks")
 
     # ------------------------------------------------------------------
@@ -351,7 +322,7 @@ def main():
                                for k in hist_per_trace_stats}
 
     # ------------------------------------------------------------------
-    # Falsification checklist
+    # Comparison checklist
     # ------------------------------------------------------------------
     def _ratio(arm_val, ref_val):
         if ref_val == 0 or not np.isfinite(ref_val):
@@ -381,31 +352,25 @@ def main():
         }
     checklist["ranges"] = arm_ranges
 
-    # Pairwise max-ratio vs hydrologic baseline (if hydrologic is an arm).
-    if "hydrologic" in arm_ranges:
-        hy = arm_ranges["hydrologic"]
-        ratios: Dict[str, Dict[str, float]] = {}
-        for a in ARMS:
-            if a == "hydrologic" or a not in arm_ranges:
-                continue
-            ratios[a] = {
-                k: _ratio(arm_ranges[a][k]["max"], hy[k]["max"])
-                for k in objective_keys
-            }
-        checklist["max_ratio_over_hydrologic"] = ratios
+    # Pairwise max-ratio: residual / index (if both modes have Pareto archives).
+    if "index" in arm_ranges and "residual" in arm_ranges:
+        idx_ranges = arm_ranges["index"]
+        ratios: Dict[str, float] = {
+            k: _ratio(arm_ranges["residual"][k]["max"], idx_ranges[k]["max"])
+            for k in objective_keys
+        }
+        checklist["max_ratio_residual_over_index"] = ratios
 
-    # Median Manhattan per arm + delta from hydrologic.
+    # Median Manhattan per arm + delta residual - index.
     manhattan_median: Dict[str, float] = {}
     for a in ARMS:
         if pooled_manhattan[a].size:
             manhattan_median[a] = float(np.median(pooled_manhattan[a]))
     checklist["manhattan_median"] = manhattan_median
-    if "hydrologic" in manhattan_median:
-        hy_med = manhattan_median["hydrologic"]
-        checklist["manhattan_median_delta_vs_hydrologic"] = {
-            a: manhattan_median[a] - hy_med
-            for a in manhattan_median if a != "hydrologic"
-        }
+    if "index" in manhattan_median and "residual" in manhattan_median:
+        checklist["manhattan_median_delta_residual_over_index"] = (
+            manhattan_median["residual"] - manhattan_median["index"]
+        )
 
     # Infeasibility rates per arm (pooled across seeds)
     infeasibility_rates: Dict[str, float] = {}
@@ -428,10 +393,10 @@ def main():
         ]
     checklist["hyperplane"] = hp
 
-    (out_dir / "comparison_summary.json").write_text(
+    (out_dir / "wrapper_comparison_summary.json").write_text(
         json.dumps(checklist, indent=2, default=str)
     )
-    print(f"[14] wrote {out_dir / 'comparison_summary.json'}")
+    print(f"[16] wrote {out_dir / 'wrapper_comparison_summary.json'}")
 
     # ------------------------------------------------------------------
     # Figures
@@ -452,10 +417,10 @@ def main():
             plot_per_trace_stats,
         )
     except ImportError as exc:
-        print(f"[14] ABORT: required plotting modules missing: {exc}")
+        print(f"[16] ABORT: required plotting modules missing: {exc}")
         return
 
-    # ---- figSI_ablation_pareto_2d.pdf (multi-panel, shared axes) ----
+    # ---- figSI_wrapper_pareto_2d.pdf (multi-panel, shared axes) ----
     if any(pooled_metrics[a].size for a in ARMS):
         pareto_by_arm_2d = {
             a: pooled_metrics[a][:, :2] if pooled_metrics[a].size else np.zeros((0, 2))
@@ -469,12 +434,12 @@ def main():
             objective_labels=("mean duration (months)", "mean avg severity"),
             arm_order=list(ARMS),
         )
-        fig.savefig(fig_dir / "figSI_ablation_pareto_2d.pdf", dpi=200,
+        fig.savefig(fig_dir / "figSI_wrapper_pareto_2d.pdf", dpi=200,
                     bbox_inches="tight")
         plt.close(fig)
-        print(f"[14] wrote {fig_dir / 'figSI_ablation_pareto_2d.pdf'}")
+        print(f"[16] wrote {fig_dir / 'figSI_wrapper_pareto_2d.pdf'}")
 
-    # ---- figSI_ablation_pareto_3d.pdf (multi-panel 3D, shared limits) ----
+    # ---- figSI_wrapper_pareto_3d.pdf (multi-panel 3D, shared limits) ----
     if (any(pooled_metrics[a].size for a in ARMS)
             and len(objective_keys) >= 3):
         k3 = tuple(objective_keys[:3])
@@ -493,20 +458,20 @@ def main():
                 objective_labels=k3,
                 arm_order=list(ARMS),
             )
-            fig3.savefig(fig_dir / "figSI_ablation_pareto_3d.pdf",
+            fig3.savefig(fig_dir / "figSI_wrapper_pareto_3d.pdf",
                          dpi=180, bbox_inches="tight")
             plt.close(fig3)
-            print(f"[14] wrote {fig_dir / 'figSI_ablation_pareto_3d.pdf'}")
+            print(f"[16] wrote {fig_dir / 'figSI_wrapper_pareto_3d.pdf'}")
 
-    # ---- figSI_ablation_manhattan_dist.pdf ----
+    # ---- figSI_wrapper_manhattan_dist.pdf ----
     if any(pooled_manhattan[a].size for a in ARMS):
         fig_m, _ = plot_manhattan_distribution(pooled_manhattan)
-        fig_m.savefig(fig_dir / "figSI_ablation_manhattan_dist.pdf", dpi=200,
+        fig_m.savefig(fig_dir / "figSI_wrapper_manhattan_dist.pdf", dpi=200,
                       bbox_inches="tight")
         plt.close(fig_m)
-        print(f"[14] wrote {fig_dir / 'figSI_ablation_manhattan_dist.pdf'}")
+        print(f"[16] wrote {fig_dir / 'figSI_wrapper_manhattan_dist.pdf'}")
 
-    # ---- figSI_ablation_hydrology_panels.pdf ----
+    # ---- figSI_wrapper_hydrology_panels.pdf ----
     if any(pooled_traces_1d[a] for a in ARMS):
         fig_h, _ = plot_hydrology_panels_two_arms(
             traces_1d_by_arm={a: pooled_traces_1d[a] for a in ARMS},
@@ -514,25 +479,24 @@ def main():
             historical_blocks_1d=hist_blocks_1d,
             historical_blocks_2d=hist_blocks_2d,
         )
-        fig_h.savefig(fig_dir / "figSI_ablation_hydrology_panels.pdf",
+        fig_h.savefig(fig_dir / "figSI_wrapper_hydrology_panels.pdf",
                       dpi=200, bbox_inches="tight")
         plt.close(fig_h)
-        print(f"[14] wrote {fig_dir / 'figSI_ablation_hydrology_panels.pdf'}")
+        print(f"[16] wrote {fig_dir / 'figSI_wrapper_hydrology_panels.pdf'}")
 
-    # ---- figSI_ablation_per_arm_timeseries_stats.pdf ----
+    # ---- figSI_wrapper_per_trace_stats.pdf ----
     fig_b, _ = plot_per_trace_stats(
         stats_by_arm=stats_by_arm,
         hist_stats=hist_per_trace_stats,
         stat_order=["annual_mean", "annual_cv", "lag1_ac",
                     "seasonal_max_frac_dev"],
     )
-    fig_b.savefig(fig_dir / "figSI_ablation_per_arm_timeseries_stats.pdf",
+    fig_b.savefig(fig_dir / "figSI_wrapper_per_trace_stats.pdf",
                   dpi=200, bbox_inches="tight")
     plt.close(fig_b)
-    print(f"[14] wrote "
-          f"{fig_dir / 'figSI_ablation_per_arm_timeseries_stats.pdf'}")
+    print(f"[16] wrote {fig_dir / 'figSI_wrapper_per_trace_stats.pdf'}")
 
-    # ---- figSI_ablation_dv_distributions.pdf ----
+    # ---- figSI_wrapper_dv_distributions.pdf ----
     dvs_sampled: Dict[str, np.ndarray] = {}
     for a in ARMS:
         if pooled_dvs[a].size:
@@ -546,25 +510,18 @@ def main():
             dvs_sampled[a] = arr
     if dvs_sampled:
         fig_d, _ = plot_dv_distributions(dvs_sampled)
-        fig_d.savefig(fig_dir / "figSI_ablation_dv_distributions.pdf",
+        fig_d.savefig(fig_dir / "figSI_wrapper_dv_distributions.pdf",
                       dpi=200, bbox_inches="tight")
         plt.close(fig_d)
-        print(f"[14] wrote {fig_dir / 'figSI_ablation_dv_distributions.pdf'}")
+        print(f"[16] wrote {fig_dir / 'figSI_wrapper_dv_distributions.pdf'}")
 
-        # Tail-mass figure: directly answers "does AD flatten the tails
-        # relative to L2-star/KS?" Reference line = U[0,1] expected tail
-        # fraction.
         fig_tm, _ = plot_dv_tail_mass(dvs_sampled, tail_bounds=(0.05, 0.95))
-        fig_tm.savefig(fig_dir / "figSI_ablation_dv_tail_mass.pdf",
+        fig_tm.savefig(fig_dir / "figSI_wrapper_dv_tail_mass.pdf",
                        dpi=200, bbox_inches="tight")
         plt.close(fig_tm)
-        print(f"[14] wrote {fig_dir / 'figSI_ablation_dv_tail_mass.pdf'}")
+        print(f"[16] wrote {fig_dir / 'figSI_wrapper_dv_tail_mass.pdf'}")
 
-    # Infeasibility bar chart was dropped — at 200k NFE all arms hit
-    # 0% infeasibility so the figure carries no information. The raw
-    # rates remain in comparison_summary.json["infeasibility_rate"].
-
-    print("[14] done.")
+    print("[16] done.")
 
 
 if __name__ == "__main__":

@@ -46,6 +46,7 @@
 | Feasible-region framing | `design_decisions.md §DD-10` | `publication_plan.md §1.3 gap 2` |
 | Apples-to-apples comparison baseline | `design_decisions.md §DD-09` | `publication_plan.md §B4` |
 | Constraint plausibility design | `design_decisions.md §DD-05` | `constraints_spec.md` |
+| **Production constraint choice (AD)** | **`design_decisions.md §DD-14`** | `experiment_plan.md`, exp13/14 SI |
 | Code alignment backlog | `code_alignment_backlog.md` | `design_decisions.md §DD-05, §DD-07` |
 | Borg as production algorithm | `design_decisions.md §DD-07` | `publication_plan.md §1.3 item 5` |
 | Herman Axis II + Moallemi Fork 3.2.2 | `framing_anchor.md` | `manuscript_main_draft.md §4` |

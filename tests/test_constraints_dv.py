@@ -20,6 +20,7 @@ from src.constraints import ConstraintResult, _two_tier
 from src.constraints_dv import (
     DVUniformityConfig,
     compute_dv_constraint,
+    dv_anderson_darling_statistic,
     dv_ks_statistic,
     dv_l2_star_statistic,
     statistic_fn,
@@ -78,6 +79,9 @@ class TestStatistics:
         dvs = np.linspace(0.0, 1.0, 100)
         assert statistic_fn("l2_star")(dvs) == dv_l2_star_statistic(dvs)
         assert statistic_fn("ks")(dvs) == dv_ks_statistic(dvs)
+        assert (
+            statistic_fn("ad")(dvs) == dv_anderson_darling_statistic(dvs)
+        )
         with pytest.raises(ValueError):
             statistic_fn("hurst")
 
@@ -85,6 +89,35 @@ class TestStatistics:
         empty = np.array([], dtype=float)
         assert dv_l2_star_statistic(empty) == 0.0
         assert dv_ks_statistic(empty) == 0.0
+        assert dv_anderson_darling_statistic(empty) == 0.0
+
+    def test_ad_uniform_draw_is_small(self):
+        rng = np.random.default_rng(20260420)
+        dvs = rng.uniform(0.0, 1.0, size=240)
+        a2 = dv_anderson_darling_statistic(dvs)
+        # Under the null (true U[0,1] draw) A² ≈ 1 on average; 95th
+        # percentile ≈ 2.492 for any n. Single draw is unlikely to exceed 5.
+        assert 0.0 <= a2 < 5.0, f"AD too large for uniform draw: {a2}"
+
+    def test_ad_increases_when_tail_mass_added(self):
+        # Monotonicity: starting from a uniform draw and adding tail
+        # mass should strictly increase A². This is the behavioural
+        # property the constraint relies on.
+        rng = np.random.default_rng(7)
+        baseline = rng.uniform(0.0, 1.0, size=240)
+        tail_heavy = baseline.copy()
+        tail_heavy[:30] = rng.uniform(0.0, 0.02, size=30)
+        assert (
+            dv_anderson_darling_statistic(tail_heavy)
+            > dv_anderson_darling_statistic(baseline)
+        )
+
+    def test_ad_constant_vector_is_huge(self):
+        # Pathological degenerate input: all DVs at 0.5. A² should be
+        # much larger than any uniform-draw value.
+        dvs = np.full(240, 0.5)
+        a2 = dv_anderson_darling_statistic(dvs)
+        assert a2 > 50.0, f"AD on constant 0.5 should be large, got {a2}"
 
 
 # ---------------------------------------------------------------------------

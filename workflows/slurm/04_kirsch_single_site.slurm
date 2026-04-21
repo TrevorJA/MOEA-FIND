@@ -10,19 +10,25 @@
 # Experiment:  04 — single-site Kirsch MOEA-FIND with MM Borg
 # Parallelism: MPI master-worker (MM Borg); 1 master + (N-1) evaluators
 #
+# Constraint: DV-space uniformity, Anderson-Darling statistic (production default).
+# Rationale: AD yields comparable drought-space coverage to the 5-statistic
+# hydrologic formulation with a tighter, more interpretable constraint geometry.
+# Calibration: outputs/diag_dv_uniformity_calibration/calibrated_dv_tolerances.json
+# (produced by diag_dv_uniformity_calibration.slurm). Must exist before submitting.
+#
 # Defaults (NFE, n_years, seed, mode, ssi timescale, islands, checkpoint
-# frequency, constraints JSON) come from src/experiment_config.py.
-# Override per-run from sbatch via env vars:
+# frequency) come from src/experiment_config.py. Override per-run via env vars:
 #
-#   sbatch --export=ALL,BORG_NFE=500000 workflows/slurm/04_kirsch_single_site.slurm
-#   sbatch --export=ALL,BORG_NFE=100,BORG_MODE=index workflows/slurm/04_kirsch_single_site.slurm
+#   sbatch --export=ALL,BORG_NFE=200000 workflows/slurm/04_kirsch_single_site.slurm
+#   sbatch --export=ALL,BORG_NFE=200000,BORG_SEED=101 workflows/slurm/04_kirsch_single_site.slurm
 #
-# For a tiny smoke test, also shrink the allocation:
-#   sbatch --export=ALL,BORG_NFE=100 --nodes=1 --ntasks-per-node=8 --time=00:15:00 \
+# Smoke test (shrink allocation):
+#   sbatch --export=ALL,BORG_NFE=2000 --nodes=1 --ntasks-per-node=8 --time=00:15:00 \
 #          workflows/slurm/04_kirsch_single_site.slurm
 #
-# IMPORTANT: Run diag_constraint_calibration.slurm FIRST to produce
-# calibrated_tolerances.json. Without it the run proceeds unconstrained.
+# To reproduce the SI hydrologic-constraint arm instead:
+#   sbatch --export=ALL,BORG_NFE=200000,CONSTRAINT_MODE=hydrologic \
+#          workflows/slurm/04_kirsch_single_site.slurm
 
 # SLURM copies scripts to a spool dir; use SLURM_SUBMIT_DIR instead.
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
@@ -35,7 +41,15 @@ export OMP_NUM_THREADS=1
 # Omitted flags fall back to defaults in src/experiment_config.py.
 # Use ${VAR:-} (colon-dash) because _common.sh enables `set -u`: unbound
 # variables would otherwise error instead of being treated as empty.
+# Production constraint defaults — override via --export if needed.
+: "${CONSTRAINT_MODE:=dv_uniform}"
+: "${DV_STATISTIC:=ad}"
+: "${DV_UNIFORMITY_JSON:=outputs/diag_dv_uniformity_calibration/calibrated_dv_tolerances.json}"
+
 PY_ARGS=(--algorithm borg_mm --plot)
+PY_ARGS+=(--constraint-mode "${CONSTRAINT_MODE}")
+PY_ARGS+=(--statistic       "${DV_STATISTIC}")
+PY_ARGS+=(--dv-uniformity-json "${DV_UNIFORMITY_JSON}")
 [ -n "${BORG_NFE:-}"         ] && PY_ARGS+=(--nfe             "${BORG_NFE}")
 [ -n "${BORG_MODE:-}"        ] && PY_ARGS+=(--mode            "${BORG_MODE}")
 [ -n "${BORG_SEED:-}"        ] && PY_ARGS+=(--seed            "${BORG_SEED}")

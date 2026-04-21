@@ -2,10 +2,10 @@
 #SBATCH --job-name=moea_09_reeval
 #SBATCH --output=workflows/slurm/slurm_logs/%x_%j.out
 #SBATCH --error=workflows/slurm/slurm_logs/%x_%j.err
-#SBATCH --nodes=1
-#SBATCH --ntasks=16
-#SBATCH --mem=64G
-#SBATCH --time=12:00:00
+#SBATCH --nodes=3
+#SBATCH --ntasks-per-node=40
+#SBATCH --exclusive
+#SBATCH --time=04:00:00
 #SBATCH --account=tja73
 #SBATCH --partition=normal
 # Manuscript: Fig 9 — Scenario discovery in drought characteristic space
@@ -16,8 +16,9 @@
 #   sbatch workflows/slurm/09_drb_policy_reeval.slurm <path/to/results.json>
 #
 # Optional environment overrides (set via --export):
-#   SUBSET     path to a JSON list of Pareto indices to process (dev ensembles)
-#   MANIFEST   path to a satisficing manifest YAML (enables classifier sweep)
+#   SUBSET          path to a JSON list of Pareto indices to process (dev ensembles)
+#   MANIFEST        path to a satisficing manifest YAML (enables classifier sweep)
+#   SKIP_GENERATE=1 skip Stage 1 (resume from Stage 2 when Stage 1 output exists)
 #
 # Examples:
 #   # Full production run, all Pareto members, legacy FFMP classifier only
@@ -70,12 +71,16 @@ echo "[09.slurm] Processors: ${N_PROCS}"
 echo "[09.slurm] Start: $(date)"
 
 # Stage 1 (generate): serial — fits generators, replays DVs
-python "${SLURM_SUBMIT_DIR}/workflows/experiments/09_drb_policy_reeval.py" \
-    --pareto-results "${PARETO_RESULTS}" \
-    --stage generate \
-    --n-years 20 \
-    --demand-source constant_max \
-    "${SUBSET_ARG[@]}"
+if [[ "${SKIP_GENERATE:-0}" == "1" ]]; then
+    echo "[09.slurm] Skipping Stage 1 (SKIP_GENERATE=1)"
+else
+    python "${SLURM_SUBMIT_DIR}/workflows/experiments/09_drb_policy_reeval.py" \
+        --pareto-results "${PARETO_RESULTS}" \
+        --stage generate \
+        --n-years 20 \
+        --demand-source constant_max \
+        "${SUBSET_ARG[@]}"
+fi
 
 # Stages 2-3 (prep + simulate): MPI-parallel
 mpirun --oversubscribe -np "${N_PROCS}" \

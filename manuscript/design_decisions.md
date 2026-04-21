@@ -235,7 +235,7 @@ What constraints should enforce trace plausibility, and how tight should they be
 - Constraint violations can be evaluated cheaply alongside drought metrics
 - Starting with minimal constraints and adding if needed is more robust than starting strict
 
-### Decision (updated 2026-04-15; see `manuscript_main_draft.md` §2.2.4 for authoritative specification)
+### Decision (updated 2026-04-21; see §DD-14 for the production constraint selection; see `manuscript_main_draft.md` §2.2.4 for prose specification)
 
 **Resolved.** The constraints verify statistical plausibility — that each synthetic trace lies within the envelope of traces the Kirsch-Nowak generator could produce naturally given an infinite ensemble. Two constraints are specified in the manuscript: lag-1 autocorrelation within tolerance of historical, and non-drought-period mean flow within tolerance of historical. These are implemented as soft constraints under the Deb (2000) constraint-domination criterion. The exact tolerance values are items in the code alignment backlog (see `methods_audit.md` Items 1 and 2). The constraint set does not identify drought events; it verifies plausibility of the full trace relative to the generator's natural envelope. A third constraint (seasonal cycle) is present in the code and is discussed in `methods_audit.md` Item 3.
 
@@ -824,3 +824,53 @@ and in the main manuscript draft which now passes every listed
 pre-commit check.
 
 ---
+
+## DD-14: Production Constraint Choice — Anderson-Darling DV-Uniformity
+
+*Opened and resolved 2026-04-21.*
+
+### The question
+
+Which constraint regime should the main-text production run (exp04, Figs 5–6) use, and how should this differ from the SI ablation?
+
+### Background
+
+The DV-uniformity constraint family (exp13/14 ablation, SI) compares three regimes across 3 seeds × 200 k NFE:
+
+| Regime | Constraint | Pareto pooled | Max mean_duration | Max mean_avg_severity | Manhattan median |
+|---|---|---|---|---|---|
+| hydrologic | 5-statistic plausibility | 4662 | 9.50 mo | 2.70 | 72.15 |
+| dv_l2_star | L2* discrepancy on DV vector | 5602 | 9.47 mo | 2.85 | 72.57 |
+| dv_ad | Anderson-Darling on DV vector | 3939 | 8.71 mo | 2.50 | 72.36 |
+
+### Decision
+
+**The production run uses `dv_uniform` + `ad` (Anderson-Darling).** Rationale:
+
+1. **Interpretability.** The AD constraint operates entirely in DV space: it rejects solutions whose DV vectors are too far from the uniform distribution the search was initialised with, measured by a single, well-understood non-parametric goodness-of-fit statistic. The 5-statistic hydrologic set requires calibrated tolerances for each flow statistic and conflates the constraint role with the hydrological plausibility role.
+
+2. **Geometry.** The AD constraint produces a tighter, more convex feasible region than L2-star (which tolerates `peak_severity_month = 12`, a numerical artefact of the cyclic metric range). The AD Pareto front is the most physically defensible of the three: all three objective ranges are within the historical envelope, whereas L2-star's `peak_severity_month` maximum of 12.0 exceeds it.
+
+3. **Comparable coverage.** The Manhattan-distance median for AD (72.36) is between hydrologic (72.15) and L2-star (72.57) — within 0.4 of hydrologic, well inside seed-level noise. Coverage of drought-characteristic space is equivalent across all three regimes at 200 k NFE (confirmed by exp14 figures).
+
+4. **Calibration traceability.** The AD tolerance is calibrated by bootstrap U[0,1] draws (`diag_dv_uniformity_calibration`), producing a single scalar threshold with a clear operational definition: the constraint passes any DV configuration reachable from a uniform distribution at the calibrated significance level.
+
+### What changes in the code
+
+- `workflows/experiments/04_kirsch_single_site.py`: added `--constraint-mode`, `--statistic`, `--dv-uniformity-json` args; default is `dv_uniform / ad`. The old `--constraints-json` flag is retained for the hydrologic mode (SI reproducibility).
+- `workflows/slurm/04_kirsch_single_site.slurm`: defaults to `CONSTRAINT_MODE=dv_uniform`, `DV_STATISTIC=ad`, pointing at `outputs/diag_dv_uniformity_calibration/calibrated_dv_tolerances.json`.
+- Output slug for the AD run: `residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad` (encodes both constraint mode and statistic).
+
+### SI treatment
+
+The exp13/14 ablation retains all three constraint arms and all 7 SI figures comparing them. The SI caption notes that the AD arm is the production choice and references this DD. The hydrologic arm remains in the SI as the baseline most similar to Wheeler et al. (2025).
+
+### Precondition for rerun
+
+`outputs/diag_dv_uniformity_calibration/calibrated_dv_tolerances.json` must exist (already produced). Submit:
+
+```bash
+sbatch --export=ALL,BORG_NFE=200000 workflows/slurm/04_kirsch_single_site.slurm
+```
+
+The old hydrologic output (`residual_T20_nfe200000_s42_constrained`) is retained in `outputs/exp04_kirsch_single_site/` under its original slug and is not overwritten by the AD rerun.
