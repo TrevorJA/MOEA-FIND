@@ -11,8 +11,8 @@ must satisfy every rule below before commit.*
 
 ## 1. Scope and priority
 
-This document governs `manuscript/manuscript_main_draft.md`,
-`manuscript/supporting_info_draft.md`, and any figure captions,
+This document governs `drafts/manuscript_main_draft.md`,
+`drafts/supporting_info_draft.md`, and any figure captions,
 table captions, or abstract text destined for submission to *Water
 Resources Research*. It does not govern planning notes, design
 decision documents, or the shell-versus-interior diagnostic note,
@@ -120,14 +120,12 @@ Time Series With Simulated Annealing", "2.4 Model Verification
 and Validation". None of the sampled papers uses a section header
 that previews a result or makes a claim.
 
-The MOEA-FIND top-level section sequence will therefore be
-"1. Introduction, 2. Background, 3. Methods, 4. Study Area and
-Drought Characterisation, 5. Analytic Validation, 6. Single-Site
-Application at Cannonsville, 7. Multi-Site Application to the
-Delaware River Basin, 8. Discussion, 9. Conclusions". Subsection
-headers will be 2 to 7 words, descriptive, and Title Case. Current
-section titles such as "Contributions and the honest scope of the
-claim" violate Rule 2.6 and will be replaced with "Contributions".
+The authoritative section outline for the MOEA-FIND draft lives in
+`drafts/manuscript_main_draft.md` and overrides any earlier outlines in
+notes or planning documents. Subsection headers must be two to seven
+words, descriptive, and Title Case. Section titles such as
+"Contributions and the honest scope of the claim" violate Rule 2.6 and
+must be replaced with the descriptive form ("Contributions").
 
 ### 3.2 Paragraph openings
 
@@ -421,8 +419,8 @@ Information, the Abstract, the Plain Language Summary, and the Key
 Points. Every cited claim is paraphrased in the author's own words
 and followed by a parenthetical citation. This rule is strict and
 applies even when the original wording is more precise than the
-paraphrase. Quotations are permitted only in the working notes
-under `manuscript/notes/` for author reference, never in a file
+paraphrase. Quotations are permitted only in the working notes under
+`scratch/` or `literature/notes/` for author reference, never in a file
 destined for submission. The reason is that academic papers in
 *Water Resources Research* and its subfield do not use direct
 quotation as a rhetorical device except in history-of-science or
@@ -526,9 +524,9 @@ not by novelty claims.
 
 ## 6. Pre-commit checklist
 
-Before any edit to `manuscript/manuscript_main_draft.md` or
-`manuscript/supporting_info_draft.md` is finalised, the author
-confirms that the edit satisfies every item in this list.
+Before any edit to `drafts/manuscript_main_draft.md` or
+`drafts/supporting_info_draft.md` is finalised, the author confirms
+that the edit satisfies every item in this list.
 
 The edit contains no bold-led topic sentences matching
 `**[A-Z][a-z].*\.**`. The edit contains no triple-backtick fences

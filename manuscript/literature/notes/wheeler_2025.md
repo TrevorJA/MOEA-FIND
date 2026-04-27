@@ -1,12 +1,12 @@
-# Wheeler et al. (2024) - Multisite Nonparametric Stochastic Streamflow Generation
+# Wheeler et al. (2025) — Multisite Nonparametric Stochastic Streamflow Generation
 
 **Full title:** Multisite Nonparametric Stochastic Streamflow Generation for the Eastern Nile Basin
-**Journal:** ASCE (Journal of Water Resources Planning and Management)
+**Journal:** Journal of Hydrologic Engineering (ASCE)
 **Authors:** Wheeler, Simpson, Borgomeo, Hall
 
 ## Summary
 
-Extends the Borgomeo/Zaniolo simulated annealing approach to multiple sites. Key differences from Zaniolo (2023):
+Extends the Borgomeo/Zaniolo simulated annealing approach to multiple sites. Key differences from Zaniolo (2024):
 - Focus on **multiple sites** using cross-site correlation matrix in the objective function
 - **Hurst coefficient** included in the objective function (long-range dependence)
 - Same simulated annealing optimizer

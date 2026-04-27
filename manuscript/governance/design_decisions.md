@@ -564,7 +564,7 @@ tabulated results at
 `outputs/diag_shell_vs_interior/sweep_table.md`. Per-`K` figures at
 `figures/figSI_shell_interior_k{K}.pdf`. Dimension-sweep summary at
 `figures/figSI_shell_interior_sweep.pdf`. Full verdict at
-`manuscript/notes/shell_vs_interior_diagnostic.md`.
+`evidence/shell_vs_interior_diagnostic.md`.
 
 ### Decisions
 

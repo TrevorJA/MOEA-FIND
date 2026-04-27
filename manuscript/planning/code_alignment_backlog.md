@@ -1,8 +1,8 @@
 # Code Alignment Backlog
 
-*Prepared 2026-04-15 from comparison of `manuscript_main_draft.md` (§2.2.4) against `src/constraints.py` and `scripts/02_analytic_3d.py`, informed by `generator_constraints_review.md`.*
+*Originally prepared 2026-04-15 from comparison of `manuscript_main_draft.md` §2.2.4 against `src/constraints.py` and the analytic experiment scripts. Bootstrap-calibration guidance referenced below as `generator_constraints_review.md` was rolled into per-experiment SI reporting and the diagnostic at `workflows/diagnostics/diag_constraint_calibration.py`.*
 
-*Framing principle: The manuscript is the specification. Items below are places where the code has not yet been updated to match it. Items marked [TREV-DECISION] require authorial choice before the code alignment can be completed.*
+*Framing principle: the manuscript is the specification. Items below are places where the code has not yet been updated to match it. Items marked [TREV-DECISION] require authorial choice before the code alignment can be completed.*
 
 *2026-04-19 update: Items 1, 2, and 4 are retired. The manuscript §2.2.4 no longer pre-specifies constraint tolerances. Instead, tolerances are calibrated by bootstrap per experiment (via `workflows/diagnostics/diag_constraint_calibration.py`) and reported in the Supporting Information for each run. The pre-2026-04-19 §2.2.4 prose hard-coded lag-1 AC = 0.05 and non-drought mean = 15 %, which the 200K NFE Cannonsville run did not use; softening the prose to the per-experiment-reporting posture eliminates the mismatch without forcing a code-side change. Items 3, 5, 6, 7 remain active.*
 
@@ -206,3 +206,42 @@ then run as a separate numerical experiment. Implementation sketch:
 **Alignment action:** No code change yet. Revisit post-submission of
 the current manuscript. [TREV-DECISION: paper scope — include demand
 dimension in the core paper's fig09 or relegate to a follow-up?]
+
+---
+
+## Item 10: Update CLAUDE.md to reflect post-2026-04-20 HPC pull
+
+**Issue (2026-04-27):** `.claude/CLAUDE.md` is dated 2026-04-13 (Session
+14). The 2026-04-20 and 2026-04-21 HPC pulls added seven production
+modules to `src/` (`pywrdrb_bridge.py`, `multisite_data.py`,
+`scenario_discovery.py`, `satisficing_metrics.py`, `satisficing_labels.py`,
+`constraints_dv.py`, `historical_blocks.py`) and reorganised experiments
+into `workflows/experiments/` (numbered 01–17) with one-to-one SLURM
+wrappers under `workflows/slurm/`. None of this is reflected in
+CLAUDE.md, including the explicit "Pending Phase 2 Experiment 2.1, 2.3"
+note which is no longer accurate.
+
+**Alignment action:** Replace the "Current State" section and the
+"Project Structure" tree in `.claude/CLAUDE.md` with the snapshot from
+`code_state.md`. Update the immediate-next-steps list. Defer until after
+the next HPC results land so the CLAUDE.md update is a single sweep
+rather than two.
+
+---
+
+## Item 11: Manuscript notes on the HPC integration modules
+
+**Issue (2026-04-27):** The seven HPC integration modules referenced in
+Item 10 are documented only in their docstrings. The Methods section of
+the manuscript currently describes Sections 3.2 and 3.3 in terms of
+"Pywr-DRB simulation" without naming the bridge architecture. The Methods
+prose may need a paragraph or sub-subsection covering the three-stage
+bridge (replay → preprocess → simulate) and the satisficing-label fixed
+panel.
+
+**Alignment action:** When Section 3.3 prose is drafted, add a paragraph
+in §2 or §3 describing the bridge stages and the satisficing metric
+panel, with citations to the FFMP drought-level documentation and the
+Hashimoto et al. (1982) reliability metrics. No code change. [TREV-DECISION:
+whether the bridge architecture belongs in Methods or Supporting
+Information.]

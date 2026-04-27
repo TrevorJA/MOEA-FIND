@@ -1,4 +1,23 @@
-# Critical Analysis: Things That Could Go Wrong or Need Rethinking
+# Critical Analysis (v1 — KEEP-HISTORICAL)
+
+> **KEEP-HISTORICAL — archived 2026-04-27.** This document was the
+> early honest-assessment write-up. The active concerns it raised have
+> migrated as follows:
+>
+> - §2 (Manhattan norm necessity) and §3 (interior coverage at higher
+>   K) are resolved by `governance/design_decisions.md` §DD-11 and
+>   `evidence/shell_vs_interior_diagnostic.md`.
+> - §1 (short-trace insight) is folded into `governance/design_decisions.md`
+>   §DD-01.
+> - §5 (Kirsch envelope) and §7 (better than running FIND N times) are
+>   addressed by `reference/reviewer_defenses.md` Critiques 7, 12, and
+>   18.
+> - §6 (computational bottleneck) is addressed by
+>   `reference/reviewer_defenses.md` HC-5.
+> - §8 (publication positioning) is superseded by the finalised framing
+>   in `reference/framing_anchor.md` and `drafts/manuscript_main_draft.md`.
+>
+> The original prose is retained below for provenance only. Do not edit.
 
 *This document is for honest assessment of assumptions, risks, and alternatives.*
 

@@ -108,10 +108,11 @@ structure by construction through the Cholesky factorisation: the
 constraint is therefore approximately redundant for normal traces and
 becomes active only for pathological decision vectors. The 15% non-drought
 mean-flow tolerance is less well justified and should be calibrated against
-the historical bootstrap distribution of non-drought flows (see
-`generator_constraints_review.md` §4.3 for guidance). Both tolerance
-values are items in the code alignment backlog; the manuscript is the
-specification.
+the historical bootstrap distribution of non-drought flows. Tolerance
+calibration is now run per experiment via
+`workflows/diagnostics/diag_constraint_calibration.py` and reported in
+the Supporting Information for each run; see DD-05 and DD-14 in
+`governance/design_decisions.md`.
 
 **Preemptive action.** Add a one-paragraph justification for both
 tolerance values in Section 2.2.4 explaining how they were calibrated.
@@ -893,17 +894,20 @@ response can address this without completing the HPC runs.
 
 ### HC-2. The scenario discovery demonstration is circular and adds no independent validation of the method's decision-relevance
 
-The failure label in Section 3.3 is defined on the same (D_1, D_2)
-coordinates that MOEA-FIND covers uniformly. Showing that a
-space-filling sample in a coordinate system is a better training set
-for a classifier of a threshold in that coordinate system proves
-nothing about the method's value to practitioners. The demonstration
-needs an operational failure label (reservoir performance from a
-Pywr-DRB simulation) to be informative. Without that, Section 3.3
-is a methodological circular argument dressed up as a demonstration.
-Addressing this requires either the companion simulation results or
-an explicit acknowledgment that Section 3.3 is a workflow illustration
-rather than an independent validation.
+> **RESOLVED 2026-04-14.** Section 3.3 has been redesigned to use a
+> Pywr-DRB-derived operational failure label (Hashimoto reliability
+> and vulnerability against an FFMP-aligned threshold), so the failure
+> label is no longer defined on the same coordinate system that
+> MOEA-FIND optimises over. Production protocol and references are in
+> `planning/experiment_plan.md` Part A.
+
+The original concern (retained for context): the failure label in Section
+3.3 was originally defined on the same (D_1, D_2) coordinates that
+MOEA-FIND covers uniformly. Showing that a space-filling sample in a
+coordinate system is a better training set for a classifier of a threshold
+in that coordinate system proves nothing about the method's value to
+practitioners. The demonstration needs an operational failure label
+(reservoir performance from a Pywr-DRB simulation) to be informative.
 
 ### HC-3. The emergent-drought critique (Critique 6) exposes a gap between inflow coverage and operational consequence coverage that is not bridged in this paper
 

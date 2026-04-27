@@ -6,9 +6,9 @@ target-matching characterisation of all three predecessors, and
 corrected the Wheeler journal reference from Journal of Water
 Resources Planning and Management to Journal of Hydrologic Engineering.
 The K = 2 through K = 6 shell-versus-interior dimension sweep
-documented in manuscript/notes/shell_vs_interior_diagnostic.md and in
-DD-11 is the empirical anchor for the corrected method exposition and
-is not reflected in the pre-2026-04-14 entries below.*
+documented in `evidence/shell_vs_interior_diagnostic.md` and in DD-11 is
+the empirical anchor for the corrected method exposition and is not
+reflected in the pre-2026-04-14 entries below.*
 *Purpose: Ground all experimental design and method choices in published literature*
 
 ---
