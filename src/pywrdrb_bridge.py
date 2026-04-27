@@ -15,6 +15,7 @@ Stage 3 (simulate):
 
 from __future__ import annotations
 
+import gc
 import json
 import math
 import os
@@ -742,7 +743,13 @@ def run_pywrdrb_batch(
         )
 
         model.run()
-        del model  # free memory
+
+        # Drop every object that pins the Model/Recorder graph before the
+        # next batch's ModelBuilder allocates. Without this, rank-level
+        # memory grew batch-over-batch and OOM-killed one rank on 212267
+        # partway through batch 2/2.
+        del recorder, model, mb, export_params, all_param_names
+        gc.collect()
 
         print(f"[bridge]   rank={rank} batch {batch_idx + 1} complete")
 

@@ -18,12 +18,12 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-# Resolve which exp04 variant feeds fig05. If BORG_NFE is set (e.g. by
-# the upstream exp04 SLURM via --export), pass it through; otherwise
-# let script 10 fall back to DEFAULT_EXPERIMENT.nfe.
-PY_ARGS=()
-if [ -n "${BORG_NFE:-}" ]; then
-    PY_ARGS+=(--exp04-nfe "${BORG_NFE}")
-fi
-
-python workflows/experiments/10_plot_manuscript_figures.py "${PY_ARGS[@]}"
+# Resolve which exp04 variant feeds fig05/06. If BORG_NFE is set
+# (e.g. by the upstream exp04 SLURM via --export), pass it through;
+# otherwise default to the production NFE used by current exp04/09
+# runs.  DEFAULT_EXPERIMENT.nfe in src/experiment_config.py is a
+# plumbing smoke value (nfe=100) that would cause fig05/06 to SKIP
+# with "missing outputs/exp04_.../residual_T20_nfe100_s42_constrained".
+: "${BORG_NFE:=200000}"
+python workflows/experiments/10_plot_manuscript_figures.py \
+    --exp04-nfe "${BORG_NFE}"

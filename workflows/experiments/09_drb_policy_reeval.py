@@ -67,18 +67,11 @@ from src.pywrdrb_bridge import (  # noqa: E402
 from src.scenario_discovery import (  # noqa: E402
     extract_drought_levels,
     build_satisficing_table,
-    plot_satisficing_map,
-    plot_satisficing_map_multi,
     save_results,
 )
 from src.satisficing_metrics import (  # noqa: E402
     compute_metric_bank,
     write_metric_bank,
-)
-from src.satisficing_labels import (  # noqa: E402
-    apply_labels,
-    load_manifest,
-    sweep_manifest,
 )
 
 OUTPUT_SLUG = "exp09_drb_policy_reeval"
@@ -121,8 +114,6 @@ def main():
                    help="Seed for Nowak disaggregation.")
     p.add_argument("--use-mpi", action="store_true",
                    help="Parallelize Stages 2-3 across MPI ranks.")
-    p.add_argument("--plot", action="store_true",
-                   help="Generate scenario discovery figure.")
     p.add_argument("--output-dir", type=Path,
                    default=PROJECT_ROOT / "outputs" / OUTPUT_SLUG)
     p.add_argument("--realization-subset-file", type=Path, default=None,
@@ -130,16 +121,10 @@ def main():
                         "(integer list) to process. Used for dev-ensemble smoke "
                         "tests — the production run omits this flag and "
                         "processes all Pareto solutions.")
-    p.add_argument("--manifest", type=Path, default=None,
-                   help="Optional satisficing manifest (YAML) to sweep during "
-                        "Stage 4. Omit for the legacy FFMP-Level-6 classifier "
-                        "only.")
-    p.add_argument("--classifier-models", nargs="+",
-                   default=["gbt", "logreg"],
-                   choices=["gbt", "logreg"],
-                   help="Classifiers to fit per manifest definition. Produces "
-                        "one set of artifacts and one fig09 per model. "
-                        "Default: both.")
+    # Plotting and classifier training moved to
+    # workflows/experiments/17_drb_scenario_discovery_plots.py. This driver
+    # now focuses on rerunning scenarios, computing metrics, and saving
+    # outputs only.
     args = p.parse_args()
 
     # --- Load Pareto results from Script 04 ---
@@ -188,7 +173,6 @@ def main():
     pywrdrb_inputs = out / "pywrdrb_inputs"
     sim_dir = out / "simulations"
     results_dir = out / "results"
-    fig_dir = out / "figures"
 
     flow_type = f"moea_find_{slug}"
 
@@ -394,95 +378,17 @@ def main():
         print(f"[09] wrote metric bank: {bank_written_to} "
               f"({len(bank)} realizations, {bank.shape[1]} metrics)")
 
-        # Legacy FFMP-Level-6 binary classifier (back-compat). Uses the
-        # same combined HDF5.
+        # Legacy FFMP-Level-6 classification table. We still compute and
+        # persist this because it's the simplest drought-level summary
+        # that downstream plotting (script 17) and any analyst needs
+        # before invoking a classifier.  No figures are generated here;
+        # all scenario-discovery plotting lives in
+        # workflows/experiments/17_drb_scenario_discovery_plots.py.
         drought_levels = extract_drought_levels(sim_dir, realization_ids)
         df = build_satisficing_table(
             drought_levels, pareto_chars, drought_metrics, objective_keys,
         )
         save_results(df, drought_levels, results_dir)
-
-        # Optional manifest sweep. When --manifest is omitted, Stage 4 stops
-        # at the legacy path; downstream analysis can still run script 12
-        # against the metric bank. When --manifest is given, we sweep each
-        # requested classifier model, writing per-model artifacts under
-        # results/{model_name}/ so both fits can coexist on disk.
-        model_summaries: "dict[str, pd.DataFrame]" = {}
-        if args.manifest is not None:
-            manifest = load_manifest(args.manifest)
-            chars_records = [dict(c) for c in pareto_chars]
-            chars_df = pd.DataFrame(chars_records)
-            chars_df.index = [str(r) for r in realization_ids]
-            chars_df.index.name = "realization_id"
-            feature_cols = tuple(objective_keys)
-
-            for model_name in args.classifier_models:
-                print(f"[09] sweeping manifest {args.manifest} "
-                      f"with model={model_name}")
-                model_results_dir = results_dir / model_name
-                summary_df = sweep_manifest(
-                    bank_df=bank, chars_df=chars_df, manifest=manifest,
-                    feature_cols=list(feature_cols),
-                    output_dir=model_results_dir,
-                    seed=args.seed,
-                    model_name=model_name,
-                )
-                summary_path = model_results_dir / "classifier_summary.csv"
-                summary_path.parent.mkdir(parents=True, exist_ok=True)
-                summary_df.to_csv(summary_path, index=False)
-                print(f"[09] wrote {summary_path}")
-                model_summaries[model_name] = summary_df
-
-        if args.plot:
-            # No historical reference point on fig09: the previous
-            # implementation collapsed `drought_metrics.min()` across
-            # objectives into a fake "historical" star that was neither
-            # a real solution nor a real observed measurement. Fig06
-            # already shows the true historical-block distribution; a
-            # separate subplot can overlay those blocks against the
-            # satisficing background later if desired.
-            if args.manifest is not None and model_summaries:
-                labels_long = apply_labels(bank, manifest)
-                classifier_labels = {
-                    "gbt": "sklearn GradientBoostingClassifier, default "
-                           "hyperparams, 5-fold stratified CV",
-                    "logreg": "sklearn LogisticRegression with degree-2 "
-                              "polynomial features + StandardScaler, 5-fold "
-                              "stratified CV",
-                }
-                for model_name, summary_df in model_summaries.items():
-                    if summary_df.empty:
-                        continue
-                    plot_satisficing_map_multi(
-                        labels_long=labels_long,
-                        chars_df=chars_df,
-                        manifest=manifest,
-                        classifiers_dir=results_dir / model_name / "classifiers",
-                        feature_cols=list(feature_cols),
-                        anti_ideal=anti_ideal,
-                        classifier_label=classifier_labels.get(
-                            model_name, model_name,
-                        ),
-                        output_path=fig_dir
-                        / f"fig09_satisficing_map_{model_name}.pdf",
-                    )
-
-                # Per-model AUC summary bar chart
-                from src.plotting.satisficing_boundary import plot_manifest_summary
-                for model_name, summary_df in model_summaries.items():
-                    if summary_df.empty:
-                        continue
-                    plot_manifest_summary(
-                        summary_df,
-                        output_path=fig_dir
-                        / f"fig_manifest_summary_{model_name}.pdf",
-                        title=f"Satisficing sweep ({model_name}) — {slug}",
-                    )
-            else:
-                plot_satisficing_map(
-                    df, anti_ideal=anti_ideal,
-                    output_path=fig_dir / "fig09_satisficing_map.pdf",
-                )
 
         elapsed = time.time() - t0
         print(f"[09] Stage 4 complete in {elapsed:.1f}s")

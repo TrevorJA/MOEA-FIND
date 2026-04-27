@@ -86,6 +86,10 @@ EXP04_DIR: Path = (
         seed=_CFG.seed, constrained=_CFG.constraints_json is not None,
     )
 )
+# exp09 produces the DRB scenario-discovery figure that fig07 packages.
+# Same variant slug convention as exp04 — main() re-resolves both from
+# CLI overrides so changing --exp04-nfe reaches fig07 too.
+EXP09_DIR: Path = OUTPUTS / "exp09_drb_policy_reeval" / EXP04_DIR.name
 def _save(fig, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=300, bbox_inches="tight")
@@ -398,14 +402,24 @@ def fig06_cannonsville_pareto() -> bool:
 
 
 def fig07_gbt_hazard_discovery() -> bool:
-    """Figure 7 (§3.3) — gradient-boosted-tree scenario discovery.
+    """Figure 7 (§3.3) — DRB scenario discovery (satisficing map).
 
-    Out of scope for this pass. The assembler would train a classifier on
-    the MOEA-FIND Pareto archive plus an equal-size LHS subsample of the
-    Kirsch library, reporting out-of-sample ROC AUC, Brier score, and a
-    partial-dependence decision boundary in the (D1, D2) plane.
+    Repackages the satisficing classification figure emitted by
+    exp09 Stage 4 classify (``<EXP09_DIR>/figures/fig09_satisficing_map.pdf``)
+    under the manuscript-ordered name ``fig07_gbt_hazard_discovery.pdf``.
+
+    The upstream figure plots each Pareto policy in (D_1, D_2) drought
+    space, colour-coded by whether the full Pywr-DRB re-evaluation under
+    that policy's synthetic inflows satisfies the FFMP / satisficing
+    criterion.  If exp09 produced the PDF, we copy it; otherwise we skip
+    with a message pointing at the exp09 run that needs to complete.
     """
-    _skip("fig07", "out of scope for this pass (GBT scenario discovery)")
+    prebuilt = EXP09_DIR / "figures" / "fig09_satisficing_map.pdf"
+    if prebuilt.exists():
+        _copy(prebuilt, FIGURES / "fig07_gbt_hazard_discovery.pdf")
+        return True
+    _skip("fig07", f"missing {prebuilt.relative_to(PROJECT_ROOT)} "
+                    "(run exp09 Stage 4 classify for the configured variant first)")
     return False
 
 
@@ -456,7 +470,7 @@ FACTORIES: Dict[str, Callable[[], bool]] = {
 
 
 def main():
-    global EXP04_DIR
+    global EXP04_DIR, EXP09_DIR
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--only", nargs="+", choices=sorted(FACTORIES.keys()),
                    help="Restrict to a subset of figures.")
@@ -485,8 +499,10 @@ def main():
             constrained=_CFG.constraints_json is not None,
         )
     EXP04_DIR = OUTPUTS / "exp04_kirsch_single_site" / slug
-    print(f"[10] exp04 variant: {slug}")
-    print(f"[10] exp04 dir:     {EXP04_DIR.relative_to(PROJECT_ROOT)}")
+    EXP09_DIR = OUTPUTS / "exp09_drb_policy_reeval" / slug
+    print(f"[10] variant:   {slug}")
+    print(f"[10] exp04 dir: {EXP04_DIR.relative_to(PROJECT_ROOT)}")
+    print(f"[10] exp09 dir: {EXP09_DIR.relative_to(PROJECT_ROOT)}")
 
     keys = args.only or list(FACTORIES.keys())
     print(f"[10] assembling manuscript figures: {', '.join(keys)}")
