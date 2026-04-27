@@ -229,10 +229,10 @@ def plot_satisficing_map(
     hist_chars: Optional[dict] = None,
     anti_ideal: Optional[np.ndarray] = None,
     output_path: Optional[Path] = None,
-    x_col: str = "mean_duration",
-    y_col: str = "mean_avg_severity",
-    x_label: str = "Mean drought duration (months)",
-    y_label: str = "Mean avg. severity (|SSI|)",
+    x_col: str = "mean_severity",
+    y_col: str = "mean_magnitude",
+    x_label: str = "Mean drought severity (|SSI|)",
+    y_label: str = "Mean event cumulative deficit (|SSI|·month)",
 ):
     """Legacy single-panel scatter used when no manifest is supplied.
 
@@ -305,15 +305,13 @@ def plot_satisficing_map_multi(
     chars_df: pd.DataFrame,
     manifest: Sequence,
     classifiers_dir: Path,
-    feature_cols: Sequence[str] = (
-        "mean_duration", "mean_avg_severity", "peak_severity_month",
-    ),
-    x_col: str = "mean_duration",
-    y_col: str = "mean_avg_severity",
-    agg_col: Optional[str] = "peak_severity_month",
+    feature_cols: Optional[Sequence[str]] = None,
+    x_col: str = "mean_severity",
+    y_col: str = "mean_magnitude",
+    agg_col: Optional[str] = "time_in_drought_fraction",
     agg_fn: str = "median",
-    x_label: str = "Mean drought duration (months)",
-    y_label: str = "Mean avg. severity (|SSI|)",
+    x_label: str = "Mean drought severity (|SSI|)",
+    y_label: str = "Mean event cumulative deficit (|SSI|·month)",
     hist_chars: Optional[dict] = None,
     anti_ideal: Optional[np.ndarray] = None,
     output_path: Optional[Path] = None,
@@ -374,8 +372,13 @@ def plot_satisficing_map_multi(
     fail_color = "#c0392b"    # muted red (RdBu low end)
 
     # Feature columns we need to evaluate classifiers. Grid values are
-    # filled from chars_df aggregates for columns other than x/y.
-    feature_cols = list(feature_cols)
+    # filled from chars_df aggregates for columns other than x/y. Default
+    # to the primary metric preset.
+    if feature_cols is None:
+        from src.drought_metrics import metric_names, resolve_metric_set
+        feature_cols = list(metric_names(resolve_metric_set("primary")))
+    else:
+        feature_cols = list(feature_cols)
     missing = [c for c in feature_cols if c not in chars_df.columns]
     if missing:
         raise KeyError(

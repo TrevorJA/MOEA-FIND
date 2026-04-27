@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from src.drought_metrics import REGISTRY, resolve_metric_set
 from src.objectives import (
     analytic_objectives,
     compute_drought_characteristics,
@@ -163,7 +164,7 @@ class TestDroughtObjectives:
 
     def test_cyclic_month_anti_ideal_outside_calendar(self):
         # peak_severity_month ∈ [0, 12]; D*_month = 18 (set by
-        # compute_ssi_anti_ideal as 12 × 1.5) keeps the hyperplane
+        # compute_anti_ideal as 12 × 1.5) keeps the hyperplane
         # assumption D_j <= D*_j intact even for cyclic axes.
         chars = {"mean_duration": 5.0, "peak_severity_month": 11.0}
         anti_ideal = np.array([10.0, 18.0])
@@ -176,6 +177,20 @@ class TestDroughtObjectives:
         # Manhattan: |5 - 10| + |11 - 18| = 5 + 7 = 12.
         assert objs[-1] == pytest.approx(12.0)
         # Hyperplane identity still holds with cyclic-month D*.
+        assert np.sum(objs) == pytest.approx(np.sum(anti_ideal))
+
+    def test_metric_set_passes_through_drought_metric_instances(self):
+        # New API: drought_objectives can take a tuple of DroughtMetric
+        # instances directly. Each metric's ``extract`` pulls the value
+        # out of the chars dict, so the same algebraic identities hold.
+        metrics = resolve_metric_set(["mean_severity", "mean_magnitude"])
+        chars = {"mean_severity": 1.5, "mean_magnitude": 4.0}
+        anti_ideal = np.array([3.0, 8.0])
+        objs = drought_objectives(chars, anti_ideal, objective_keys=metrics)
+        assert objs[0] == pytest.approx(1.5)
+        assert objs[1] == pytest.approx(4.0)
+        assert objs[-1] == pytest.approx(5.5)  # |1.5-3| + |4-8|
+        # DD-11 hyperplane identity holds for the metric-set form too.
         assert np.sum(objs) == pytest.approx(np.sum(anti_ideal))
 
 

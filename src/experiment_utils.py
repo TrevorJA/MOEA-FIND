@@ -82,104 +82,76 @@ def compute_historical_ssi_chars(
 
 def compute_ssi_anti_ideal(
     hist_chars: dict,
-    objective_keys: tuple,
+    objective_keys,
     headroom: float = 1.5,
     feasible_maxes: Optional[Dict[str, float]] = None,
 ) -> np.ndarray:
     """Build the DD-11 anti-ideal point ``D*`` from historical drought chars.
 
-    ``D*`` must be placed **outside the feasible region** in every
-    objective so that ``D_j <= D*_j`` holds for every feasible synthetic
-    trace. Under that assumption the L1 Device in
-    :func:`src.objectives.drought_objectives` produces the constant-sum
-    hyperplane identity that makes every feasible point Pareto non-
-    dominated (see ``manuscript/design_decisions.md §DD-11``).
+    Thin shim that resolves ``objective_keys`` to a tuple of
+    :class:`src.drought_metrics.DroughtMetric` and delegates to
+    :func:`src.drought_metrics.compute_anti_ideal`. Each metric's
+    :class:`AntiIdealRule` decides placement: ``HEADROOM_TIMES_MAX`` for
+    unbounded-above non-cyclic metrics, ``CYCLIC_HEADROOM`` for cyclic
+    calendar metrics (``12 × headroom``), and ``CONSTANT`` for metrics
+    with a natural upper bound (e.g. fractions in ``[0, 1]``).
 
-    Placement rules:
-
-    - **Non-cyclic metrics** (``mean_duration``, ``mean_avg_severity``,
-      etc.): ``D*_j = headroom × reference_max`` — where ``reference_max``
-      is either ``hist_chars[max_key]`` (default) or, if
-      ``feasible_maxes[key]`` is provided, that observed Pareto-max. The
-      latter gives a tighter anti-ideal, which concentrates the
-      epsilon-box archive on the actually-reachable drought region and
-      avoids "wasting" Pareto slots on unreachable extremes. Requires a
-      prior MOEA run to supply ``feasible_maxes``.
-    - **Cyclic calendar-month metrics**
-      (:data:`src.objectives.CYCLIC_MONTH_KEYS`, e.g.
-      ``peak_severity_month``): ``D*_j = 12 × headroom`` — a month
-      number outside the 1..12 calendar so that any feasible month is
-      guaranteed ``D_j <= D*_j``. This placement is load-bearing for the
-      hyperplane identity; do not replace it with a month inside
-      ``[1, 12]``. ``feasible_maxes`` is IGNORED for cyclic keys on
-      purpose: the metric is bounded to [1, 12] by construction, and a
-      tighter D* would break the identity the moment a drought peaks
-      outside the empirically-observed range.
+    DD-11 requires ``D_j(x) <= D*_j`` for every feasible ``x``; the
+    rules above guarantee this provided ``headroom > 1``.
 
     Args:
-        hist_chars: Historical drought characteristics dict from
-            :func:`src.objectives.compute_ssi_drought_characteristics`.
-        objective_keys: Metric keys for objectives.
-        headroom: Multiplier applied to ``reference_max`` for non-cyclic
-            metrics and to ``12`` for cyclic-month metrics. Default 1.5.
-        feasible_maxes: Optional ``{objective_key: observed_max}`` dict,
-            typically from :func:`extract_pareto_maxes`. When provided,
-            overrides the historical max for non-cyclic keys only.
+        hist_chars: Historical drought characteristics dict.
+        objective_keys: Either a tuple of metric names or a tuple of
+            :class:`DroughtMetric` instances.
+        headroom: Safety factor applied to the historical maximum.
+        feasible_maxes: Optional ``{metric_name: observed_max}`` override
+            for ``HEADROOM_TIMES_MAX`` metrics. Cyclic and constant
+            metrics ignore this argument.
 
     Returns:
         Anti-ideal array ``D*`` of length ``len(objective_keys)``.
     """
-    from src.objectives import CYCLIC_MONTH_KEYS
+    from src.drought_metrics import compute_anti_ideal, resolve_metric_set
 
-    max_key_map = {
-        "mean_duration": "max_duration",
-        "mean_magnitude": "max_magnitude",
-        "mean_severity": "worst_severity",
-        "mean_avg_severity": "worst_severity",
-        "max_duration": "max_duration",
-        "max_magnitude": "max_magnitude",
-        "worst_severity": "worst_severity",
-        "frequency": "frequency",
-    }
-
-    anti_ideal = []
-    for key in objective_keys:
-        if key in CYCLIC_MONTH_KEYS:
-            # Place outside the 1..12 calendar so D_j <= D*_j always holds.
-            # Feasible_maxes is deliberately ignored here — see docstring.
-            anti_ideal.append(12.0 * headroom)
-        else:
-            if feasible_maxes is not None and key in feasible_maxes:
-                val = float(feasible_maxes[key])
-            else:
-                max_key = max_key_map.get(key, key)
-                val = hist_chars.get(max_key, 10.0)
-            if val == 0:
-                val = 10.0  # fallback for zero-event case
-            anti_ideal.append(val * headroom)
-
-    return np.array(anti_ideal)
+    metric_set = resolve_metric_set(objective_keys)
+    return compute_anti_ideal(
+        metric_set,
+        hist_chars,
+        headroom=headroom,
+        feasible_maxes=feasible_maxes,
+    )
 
 
 def extract_pareto_maxes(
     results_json_path: Path,
-    objective_keys: tuple,
+    objective_keys,
 ) -> Dict[str, float]:
-    """Read a prior ``results.json`` and return ``{key: max_D_j}`` per objective.
+    """Read a prior ``results.json`` and return ``{name: max_D_j}`` per objective.
 
     Used to drive a Pareto-based anti-ideal placement on subsequent runs
     via :func:`compute_ssi_anti_ideal`'s ``feasible_maxes`` argument.
 
-    Raises ``ValueError`` if ``objective_keys`` don't match the reference
-    file's objective ordering — mismatched objective sets would silently
-    mis-scale D*.
+    Args:
+        results_json_path: Path to a prior ``results.json``.
+        objective_keys: Either a tuple of metric names or a tuple of
+            :class:`src.drought_metrics.DroughtMetric` instances.
+
+    Raises:
+        ValueError: ``objective_keys`` don't match the reference file's
+            objective ordering. Mismatched objective sets would silently
+            mis-scale ``D*``.
     """
     import json
+    from src.drought_metrics import metric_names, resolve_metric_set
+
+    metric_set = resolve_metric_set(objective_keys)
+    names = metric_names(metric_set)
+
     payload = json.loads(Path(results_json_path).read_text())
     ref_keys = tuple(payload.get("objective_keys", ()))
-    if tuple(objective_keys) != ref_keys:
+    if names != ref_keys:
         raise ValueError(
-            f"objective_keys mismatch: requested {tuple(objective_keys)} but "
+            f"objective_keys mismatch: requested {names} but "
             f"{results_json_path} was run with {ref_keys}. Rebuild the "
             f"reference run with matching objectives, or drop the --anti-ideal-"
             f"reference flag to fall back to historical max."
@@ -190,44 +162,45 @@ def extract_pareto_maxes(
             f"{results_json_path} has no drought_metrics (empty Pareto); "
             f"cannot derive feasible maxes."
         )
-    return {k: float(dm[:, j].max()) for j, k in enumerate(objective_keys)}
+    return {n: float(dm[:, j].max()) for j, n in enumerate(names)}
 
 
 # ---------------------------------------------------------------------------
 # Epsilon defaults
 # ---------------------------------------------------------------------------
-#
-# The canonical EPSILON_MAP lives in :mod:`src.experiment_config`. It is
-# re-exported here for backwards compatibility with call sites that
-# import ``build_epsilons`` without reaching into the config module.
-
-from src.experiment_config import EPSILON_MAP  # noqa: E402
 
 
 def build_epsilons(
-    objective_keys: tuple,
+    objective_keys,
     epsilon_map: Optional[Dict[str, float]] = None,
     manhattan_eps: Optional[float] = None,
 ) -> list:
-    """Return epsilon list for objectives + Manhattan norm.
+    """Return epsilon list for objectives plus the Manhattan-norm auxiliary.
 
     Args:
-        objective_keys: Objective names in the order they appear in
-            the MOEA objective vector.
-        epsilon_map: Optional override. Defaults to
-            :data:`src.experiment_config.EPSILON_MAP`.
-        manhattan_eps: Epsilon for the ``f_{K+1}`` Manhattan-norm
-            auxiliary objective. If None, falls back to
+        objective_keys: Either a tuple of metric names or a tuple of
+            :class:`src.drought_metrics.DroughtMetric` instances. When
+            metric instances are passed, the per-axis epsilon is read
+            from each metric's ``epsilon`` field. When string names are
+            passed, ``epsilon_map`` is consulted (falls back to ``0.5``).
+        epsilon_map: Optional override mapping metric name → epsilon.
+            Used only when ``objective_keys`` is a tuple of strings.
+        manhattan_eps: Epsilon for the ``f_{K+1}`` auxiliary objective.
+            Defaults to
             :data:`src.experiment_config.DEFAULT_EXPERIMENT.manhattan_eps`.
-            Historically this defaulted to ``sum(per_axis_eps)`` — a
-            "sum rule" that turned out to be too coarse in practice
-            (it let the Manhattan axis span fewer epsilon-boxes than
-            the per-objective axes, suppressing archive spread).
-            The new default is a small fixed value (0.1) that matches
-            the per-axis resolution regime.
     """
-    em = epsilon_map if epsilon_map is not None else EPSILON_MAP
-    eps = [em.get(k, 0.5) for k in objective_keys]
+    from src.drought_metrics import DroughtMetric, resolve_metric_set
+
+    keys = tuple(objective_keys)
+    if len(keys) > 0 and isinstance(keys[0], DroughtMetric):
+        eps = [m.epsilon for m in keys]
+    elif epsilon_map is not None:
+        eps = [epsilon_map.get(k, 0.5) for k in keys]
+    else:
+        # Resolve string names to metrics so each carries its own epsilon.
+        metric_set = resolve_metric_set(keys)
+        eps = [m.epsilon for m in metric_set]
+
     if manhattan_eps is None:
         from src.experiment_config import DEFAULT_EXPERIMENT
         manhattan_eps = DEFAULT_EXPERIMENT.manhattan_eps
@@ -287,7 +260,7 @@ def run_experiment(
     monthly_1d: np.ndarray,
     generator,
     generator_name: str,
-    objective_keys: tuple,
+    objective_keys,
     anti_ideal: np.ndarray,
     timescale: int,
     n_years_out: int,
@@ -333,6 +306,8 @@ def run_experiment(
         Results dict with Pareto front, hyperplane check, ranges,
         coverage metrics, and constraint diagnostics.
     """
+    from src.drought_metrics import metric_names, resolve_metric_set
+
     np.random.seed(seed)
 
     if constraint_cfg is not None and dv_constraint_cfg is not None:
@@ -341,8 +316,11 @@ def run_experiment(
             "are mutually exclusive. Pass exactly one."
         )
 
+    metric_set = resolve_metric_set(objective_keys)
+    obj_names = metric_names(metric_set)
+
     n_dvs = generator.n_dvs
-    n_objs = len(objective_keys) + 1  # +1 for Manhattan norm
+    n_objs = len(metric_set) + 1  # +1 for Manhattan norm
     n_constrs = 0
     eval_count = [0]
     infeasible_count = [0]
@@ -359,7 +337,7 @@ def run_experiment(
     elif dv_constraint_cfg is not None and dv_constraint_cfg.enabled:
         n_constrs = 1
 
-    epsilons = build_epsilons(objective_keys)
+    epsilons = build_epsilons(metric_set)
 
     if output_dir is None:
         import tempfile
@@ -380,8 +358,10 @@ def run_experiment(
         # SSI -> drought characteristics -> objectives
         syn_series = flows_to_series(synthetic_1d, start_date="2100-01-01")
         ssi_syn = prefitted_ssi.transform(syn_series)
-        chars = compute_ssi_drought_characteristics(ssi_syn)
-        objs = list(drought_objectives(chars, anti_ideal, objective_keys))
+        chars = compute_ssi_drought_characteristics(
+            ssi_syn, monthly_flows=synthetic_1d
+        )
+        objs = list(drought_objectives(chars, anti_ideal, metric_set))
 
         # Constraints
         hard_violations = []
@@ -448,7 +428,7 @@ def run_experiment(
             "n_infeasible": infeasible_count[0],
             "anti_ideal": anti_ideal.tolist(),
             "epsilons": epsilons,
-            "objective_keys": list(objective_keys),
+            "objective_keys": list(obj_names),
             "drought_metrics": [],
             "pareto_chars": [],
             "pareto_dvs": [],
@@ -457,7 +437,7 @@ def run_experiment(
             "error": "No Pareto-optimal solutions found",
         }
 
-    drought_metrics = pareto_objs[:, :len(objective_keys)]
+    drought_metrics = pareto_objs[:, :len(metric_set)]
 
     # Hyperplane check
     obj_sums = np.sum(pareto_objs, axis=1)
@@ -465,11 +445,11 @@ def run_experiment(
     print(f"  Hyperplane: expected={expected_sum:.2f}, "
           f"mean={np.mean(obj_sums):.4f}, std={np.std(obj_sums):.6f}")
 
-    for j, key in enumerate(objective_keys):
-        print(f"  {key}: [{drought_metrics[:, j].min():.2f}, "
+    for j, name in enumerate(obj_names):
+        print(f"  {name}: [{drought_metrics[:, j].min():.2f}, "
               f"{drought_metrics[:, j].max():.2f}]")
 
-    lb = np.zeros(len(objective_keys))
+    lb = np.zeros(len(metric_set))
     ub = anti_ideal.copy()
     dm = coverage_metrics(drought_metrics, lb, ub)
 
@@ -489,7 +469,9 @@ def run_experiment(
 
         syn_s = flows_to_series(syn_1d, start_date="2100-01-01")
         ssi_re = prefitted_ssi.transform(syn_s)
-        chars = compute_ssi_drought_characteristics(ssi_re)
+        chars = compute_ssi_drought_characteristics(
+            ssi_re, monthly_flows=syn_1d
+        )
         pareto_chars.append(chars)
 
         if constraint_cfg is not None:
@@ -514,18 +496,18 @@ def run_experiment(
         "n_infeasible": infeasible_count[0],
         "anti_ideal": anti_ideal.tolist(),
         "epsilons": epsilons,
-        "objective_keys": list(objective_keys),
+        "objective_keys": list(obj_names),
         "hyperplane": {
             "expected_sum": float(expected_sum),
             "actual_mean": float(np.mean(obj_sums)),
             "actual_std": float(np.std(obj_sums)),
         },
         "ranges": {
-            key: {
+            name: {
                 "min": float(drought_metrics[:, j].min()),
                 "max": float(drought_metrics[:, j].max()),
             }
-            for j, key in enumerate(objective_keys)
+            for j, name in enumerate(obj_names)
         },
         "coverage": dm,
         "drought_metrics": drought_metrics.tolist(),
@@ -556,7 +538,7 @@ def plot_comparison(
     results_list: list,
     hist_chars: dict,
     anti_ideal: np.ndarray,
-    objective_keys: tuple,
+    objective_keys,
     fig_dir: Path,
 ) -> None:
     """Generate comparison figures for multiple generators.
@@ -568,12 +550,21 @@ def plot_comparison(
         results_list: List of results dicts from run_experiment.
         hist_chars: Historical drought characteristics dict.
         anti_ideal: Anti-ideal point (k-dimensional).
-        objective_keys: Objective names for axis labels.
+        objective_keys: Either a tuple of metric names or a tuple of
+            :class:`src.drought_metrics.DroughtMetric` instances.
         fig_dir: Output directory for figures.
     """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    from src.drought_metrics import resolve_metric_set
+
+    metric_set = resolve_metric_set(objective_keys)
+    if len(metric_set) < 2:
+        raise ValueError("plot_comparison requires at least two metrics")
+
+    m0, m1 = metric_set[0], metric_set[1]
 
     fig_dir.mkdir(parents=True, exist_ok=True)
 
@@ -586,8 +577,6 @@ def plot_comparison(
     fig, axes = plt.subplots(1, n_modes, figsize=(6 * n_modes, 5), squeeze=False)
     axes = axes[0]
 
-    k0, k1 = objective_keys[0], objective_keys[1]
-
     for ax, r in zip(axes, results_list):
         metrics = np.array(r["drought_metrics"])
         mode = r["mode"]
@@ -599,15 +588,15 @@ def plot_comparison(
             label=f"{mode} (n={r['n_pareto']})",
         )
         ax.scatter(
-            hist_chars[k0], hist_chars[k1],
+            m0.extract(hist_chars), m1.extract(hist_chars),
             marker="*", s=200, c="black", zorder=5, label="Historical",
         )
         ax.scatter(
             anti_ideal[0], anti_ideal[1],
             marker="x", s=200, c="red", zorder=5, label="Anti-ideal D*",
         )
-        ax.set_xlabel(f"{k0} (months)")
-        ax.set_ylabel(f"{k1} (avg severity)")
+        ax.set_xlabel(f"{m0.label} ({m0.units})")
+        ax.set_ylabel(f"{m1.label} ({m1.units})")
         ax.set_title(f"{mode} (n={r['n_pareto']})")
         ax.legend(fontsize=8)
 
@@ -623,12 +612,14 @@ def plot_comparison(
     # Summary table
     print(f"\n  === SSI-{ssi_acc} Kirsch PoC Summary ===")
     print(f"  {'Generator':<25} {'N':>5} "
-          f"{'Duration range':>16} {'Severity range':>16} {'L2*':>8}")
+          f"{m0.label[:16]:>16} {m1.label[:16]:>16} {'L2*':>8}")
     for r in results_list:
         rng = r["ranges"]
         cov = r["coverage"]
         l2 = cov.get("L2_star_discrepancy", cov.get("L2_star", 0))
+        r0 = rng.get(m0.name, {"min": 0.0, "max": 0.0})
+        r1 = rng.get(m1.name, {"min": 0.0, "max": 0.0})
         print(f"  {r['mode']:<25} {r['n_pareto']:>5} "
-              f"{rng[k0]['min']:.1f}-{rng[k0]['max']:.1f} mo      "
-              f"{rng[k1]['min']:.3f}-{rng[k1]['max']:.3f}     "
+              f"{r0['min']:>7.2f}-{r0['max']:<7.2f} "
+              f"{r1['min']:>7.2f}-{r1['max']:<7.2f} "
               f"{l2:>8.4f}")

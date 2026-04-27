@@ -380,7 +380,7 @@ def sweep_manifest(
     bank_df: pd.DataFrame,
     chars_df: pd.DataFrame,
     manifest: Sequence[SatisficingDefinition],
-    feature_cols: Sequence[str] = ("mean_duration", "mean_avg_severity", "peak_severity_month"),
+    feature_cols: Optional[Sequence[str]] = None,
     output_dir: Optional[Path] = None,
     seed: int = 42,
     model_name: str = "gbt",
@@ -393,7 +393,8 @@ def sweep_manifest(
             *features* passed to the classifier).
         manifest: List of :class:`SatisficingDefinition`.
         feature_cols: Drought-characteristic columns in *chars_df* used as
-            classifier features.
+            classifier features. When ``None``, falls back to the primary
+            metric preset defined in :mod:`src.drought_metrics`.
         output_dir: If given, per-definition artifacts (``model.joblib``,
             ``cv_predictions.csv``) are written under
             ``output_dir/classifiers/{definition_id}/``.
@@ -406,6 +407,11 @@ def sweep_manifest(
         Summary DataFrame with one row per definition.
     """
     import joblib
+
+    if feature_cols is None:
+        from src.drought_metrics import metric_names, resolve_metric_set
+        feature_cols = metric_names(resolve_metric_set("primary"))
+    feature_cols = tuple(feature_cols)
 
     labels_long = apply_labels(bank_df, manifest)
     summary_rows: List[Dict] = []

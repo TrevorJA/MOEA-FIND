@@ -33,8 +33,8 @@ not this index.*
 | Interior coverage evidence (preliminary) | `shell_vs_interior_diagnostic.md` | `design_decisions.md §DD-11` |
 | Feasible-region framing | `design_decisions.md §DD-10` | `publication_plan.md §1` |
 | Apples-to-apples comparison baseline | `design_decisions.md §DD-09` | `publication_plan.md Phase B` |
-| Constraint plausibility design | `design_decisions.md §DD-05` | `code_alignment_backlog.md` Items 3, 5 |
 | Production constraint choice (AD) | `design_decisions.md §DD-14` | `experiment_plan.md`, exp13/14 SI |
+| Constraint history (superseded) | `design_decisions.md §DD-05` | (points to DD-14) |
 | Code alignment backlog | `code_alignment_backlog.md` | `code_state.md` |
 | Borg as production algorithm | `design_decisions.md §DD-07` | `code_state.md` |
 | Herman Axis II + Moallemi fork 3.2.2 | `framing_anchor.md` | `manuscript_main_draft.md §4` |

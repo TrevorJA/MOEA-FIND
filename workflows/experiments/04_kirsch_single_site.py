@@ -62,6 +62,12 @@ from src.experiment_utils import (  # noqa: E402
 from src.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
 from src.constraints import ConstraintConfig  # noqa: E402
 from src.constraints_dv import DVUniformityConfig, VALID_STATISTICS  # noqa: E402
+from src.drought_metrics import (  # noqa: E402
+    PRESETS,
+    metric_labels,
+    metric_names,
+    resolve_metric_set,
+)
 
 OUTPUT_SLUG = "exp04_kirsch_single_site"
 
@@ -166,6 +172,14 @@ def main():
                         "Cyclic metrics still use 12*headroom. If unset, "
                         "D* falls back to historical_max*headroom.")
     p.add_argument("--site-label", default=cfg.site_label)
+    p.add_argument(
+        "--metric-set", default=cfg.metric_set,
+        help=(
+            "Drought metric set: a preset name "
+            f"({', '.join(sorted(PRESETS.keys()))}) or a single metric "
+            "name from the registry."
+        ),
+    )
     p.add_argument("--n-islands", type=int, default=cfg.n_islands,
                    help="Number of islands for MM Borg.")
     p.add_argument("--checkpoint-freq", type=int, default=cfg.checkpoint_freq)
@@ -217,15 +231,22 @@ def main():
     monthly_2d, monthly_1d = prepare_data(cache_dir)
 
     # --- SSI characterisation ---
-    objective_keys = cfg.objective_keys
+    metric_set = resolve_metric_set(args.metric_set)
+    objective_keys = metric_names(metric_set)
     ssi_hist, ssi_calc, hist_chars = compute_historical_ssi_chars(
         monthly_1d, args.ssi
+    )
+    # Augment historical chars with the trace-level extras (Q10 flow,
+    # time-in-drought) so metric extractors that read those keys work.
+    from src.objectives import compute_ssi_drought_characteristics
+    hist_chars = compute_ssi_drought_characteristics(
+        ssi_hist, monthly_flows=monthly_1d
     )
     feasible_maxes = None
     if args.anti_ideal_reference is not None:
         ref = Path(args.anti_ideal_reference)
         if ref.exists():
-            feasible_maxes = extract_pareto_maxes(ref, objective_keys)
+            feasible_maxes = extract_pareto_maxes(ref, metric_set)
             print(f"[04] anti-ideal reference from {ref}")
             print(f"     Pareto maxes: {feasible_maxes}")
         else:
@@ -234,15 +255,14 @@ def main():
 
     anti_ideal = compute_ssi_anti_ideal(
         hist_chars,
-        objective_keys,
+        metric_set,
         headroom=cfg.anti_ideal_headroom,
         feasible_maxes=feasible_maxes,
     )
-    print(f"[04] historical SSI-{args.ssi}: n={hist_chars['n_events']}, "
-          f"dur={hist_chars['mean_duration']:.1f}mo, "
-          f"severity={hist_chars['mean_avg_severity']:.3f}, "
-          f"peak_month={hist_chars.get('peak_severity_month', 0):.1f}")
-    print(f"[04] objectives: {objective_keys}")
+    print(f"[04] historical SSI-{args.ssi}: n={hist_chars['n_events']}")
+    for m in metric_set:
+        print(f"     {m.label}: {m.extract(hist_chars):.4g} ({m.units})")
+    print(f"[04] metric set: {args.metric_set} → {objective_keys}")
     print(f"[04] anti-ideal: {anti_ideal}")
 
     # --- Generator ---
@@ -267,6 +287,8 @@ def main():
         "constraints_json": str(args.constraints_json) if args.constraints_json else None,
         "dv_uniformity_json": str(args.dv_uniformity_json) if args.dv_uniformity_json else None,
         "n_islands": args.n_islands,
+        "metric_set": args.metric_set,
+        "objective_keys": list(objective_keys),
     }, indent=2))
 
     # --- Run ---
@@ -283,7 +305,7 @@ def main():
         monthly_1d=monthly_1d,
         generator=generator,
         generator_name=f"Kirsch ({args.mode})",
-        objective_keys=objective_keys,
+        objective_keys=metric_set,
         anti_ideal=anti_ideal,
         timescale=args.ssi,
         n_years_out=args.n_years,
@@ -340,9 +362,11 @@ def main():
             pareto_chars = result.get("pareto_chars", [])
             if pareto_chars:
                 dm = np.array(result["drought_metrics"])
-                hist_point = (
-                    float(hist_chars["mean_duration"]),
-                    float(hist_chars["mean_avg_severity"]),
+                axis_labels = tuple(
+                    f"{m.label} ({m.units})" for m in metric_set
+                )
+                hist_point = tuple(
+                    float(m.extract(hist_chars)) for m in metric_set[:2]
                 )
                 # Compute per-block historical drought characteristics
                 # using the SAME prefitted SSI calculator the MOEA used,
@@ -358,7 +382,8 @@ def main():
                 )
                 print(f"[04] historical block drought-chars: "
                       f"{hist_block_chars.shape[0]} blocks, "
-                      f"mean_duration [{hist_block_chars[:, 0].min():.2f}, "
+                      f"{objective_keys[0]} ["
+                      f"{hist_block_chars[:, 0].min():.2f}, "
                       f"{hist_block_chars[:, 0].max():.2f}]")
                 fig_a = plot_scatter_with_marginals(
                     dm[:, :2],
@@ -366,10 +391,7 @@ def main():
                     historical_point=hist_point,
                     anti_ideal=anti_ideal[:2],
                     historical_cloud=hist_block_chars[:, :2],
-                    objective_labels=(
-                        "Mean duration (months)",
-                        "Mean avg. severity",
-                    ),
+                    objective_labels=axis_labels[:2],
                 )
                 fig_a.savefig(fig_dir / "fig05_drought_space.pdf", dpi=300)
                 plt.close(fig_a)
@@ -381,14 +403,14 @@ def main():
                          objective_keys=np.array(list(objective_keys)))
 
                 # 3D drought-space scatter (if three objectives were used).
-                if dm.shape[1] >= 3 and len(objective_keys) >= 3:
+                if dm.shape[1] >= 3 and len(metric_set) >= 3:
                     hist_point_3d = np.array([
-                        float(hist_chars.get(k, 0.0)) for k in objective_keys[:3]
+                        float(m.extract(hist_chars)) for m in metric_set[:3]
                     ])
                     fig_3d = plot_drought_space_3d(
                         dm[:, :3],
                         anti_ideal=anti_ideal[:3],
-                        objective_labels=tuple(objective_keys[:3]),
+                        objective_labels=axis_labels[:3],
                         historical_point=hist_point_3d,
                         historical_cloud=hist_block_chars[:, :3],
                         title=(

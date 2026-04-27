@@ -663,12 +663,17 @@ def _drought_chars_chunk_worker(
     ssi_calc,
     objective_keys: Tuple[str, ...],
 ) -> np.ndarray:
-    """Worker: compute drought-char vectors for a list of traces."""
+    """Worker: compute drought-char vectors for a list of traces.
+
+    Passes the raw monthly flows through so trace-level extras like
+    ``q10_flow_neg`` are available in the chars dict for metric
+    extraction.
+    """
     out = np.zeros((len(traces_1d), len(objective_keys)))
     for i, t in enumerate(traces_1d):
         series = flows_to_series(t, start_date="2100-01-01")
         ssi = ssi_calc.transform(series)
-        chars = compute_ssi_drought_characteristics(ssi)
+        chars = compute_ssi_drought_characteristics(ssi, monthly_flows=t)
         for j, k in enumerate(objective_keys):
             out[i, j] = float(chars.get(k, np.nan))
     return out
@@ -918,6 +923,9 @@ def main():
                         "extended reference cloud.")
     p.add_argument("--skip-phase-b", action="store_true",
                    help="Skip the drought-space coverage section (Phase B).")
+    p.add_argument("--metric-set", default="primary",
+                   help="Drought metric set: a preset name from "
+                        "src.drought_metrics.PRESETS or a single metric name.")
     p.add_argument("--workers", type=int,
                    default=int(os.environ.get("SLURM_CPUS_PER_TASK", "1")),
                    help="Parallel worker count for trace generation and SSI "
@@ -1050,12 +1058,13 @@ def main():
         return
 
     print(f"[diag_wrapper_fidelity] Phase B: drought characterisation ...")
-    objective_keys = ("mean_duration", "mean_avg_severity", "peak_severity_month")
-    objective_labels = (
-        "mean duration (months)",
-        "mean avg severity",
-        "peak severity month",
+    from src.drought_metrics import metric_labels, metric_names, resolve_metric_set
+    metric_set = resolve_metric_set(args.metric_set)
+    objective_keys = metric_names(metric_set)
+    objective_labels = tuple(
+        f"{m.label} ({m.units})" for m in metric_set
     )
+    print(f"[diag_wrapper_fidelity] metric set: {args.metric_set} → {objective_keys}")
     _, ssi_calc, _ = compute_historical_ssi_chars(monthly_1d, args.ssi)
 
     mode_clouds: Dict[str, np.ndarray] = {

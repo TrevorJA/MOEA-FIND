@@ -10,11 +10,11 @@ The key question: does MOEA-FIND's direct optimization produce better
 coverage than post-hoc subsampling from a large library?
 
 Usage:
-    from src.library import LibraryGenerator, subsample_lhs, subsample_sobol
+    from src.library import LibraryGenerator
 
     lib = LibraryGenerator(kirsch_gen, n_years_out=15, ssi_timescale=3)
     lib.generate_library(n_traces=10000, seed=42)
-    lib.characterize(objective_keys=("mean_duration", "mean_avg_severity"))
+    lib.characterize(metric_set="primary")
     subset_lhs = lib.subsample(method="lhs", n_select=100)
     subset_sobol = lib.subsample(method="sobol", n_select=100)
 """
@@ -132,14 +132,18 @@ class LibraryGenerator:
 
     def characterize(
         self,
-        objective_keys: Tuple[str, ...] = ("mean_duration", "mean_avg_severity"),
+        metric_set="primary",
     ) -> pd.DataFrame:
         """Compute drought characteristics for all library traces.
 
         Args:
-            objective_keys: Which drought metrics to include as columns.
-                All available metrics are computed regardless; this controls
-                which are stored as the primary objectives.
+            metric_set: Either a preset name (e.g. ``"primary"``), a
+                single metric name, a sequence of metric names, or a
+                tuple of :class:`src.drought_metrics.DroughtMetric`
+                instances. All chars-dict keys are computed regardless;
+                this controls which subset is highlighted in the
+                summary log and which is treated as the default
+                objective set in :meth:`subsample`.
 
         Returns:
             DataFrame with one row per trace, columns for each metric.
@@ -151,6 +155,10 @@ class LibraryGenerator:
             flows_to_series,
             compute_ssi_drought_characteristics,
         )
+        from src.drought_metrics import metric_names, resolve_metric_set
+
+        metrics = resolve_metric_set(metric_set)
+        names = metric_names(metrics)
 
         calc = self._get_ssi_calculator()
         n_traces = len(self.traces)
@@ -163,22 +171,26 @@ class LibraryGenerator:
                 self.traces[i], start_date="2100-01-01"
             )
             ssi_values = calc.transform(syn_series)
-            chars = compute_ssi_drought_characteristics(ssi_values)
+            chars = compute_ssi_drought_characteristics(
+                ssi_values, monthly_flows=self.traces[i]
+            )
             all_chars.append(chars)
 
             if (i + 1) % 1000 == 0:
                 logger.info("  Characterized %d / %d traces", i + 1, n_traces)
 
         self.characteristics = pd.DataFrame(all_chars)
-        self._objective_keys = objective_keys
+        self._metric_set = metrics
+        # Stable string view for backwards-compatible callers.
+        self._objective_keys = names
 
-        # Log summary
-        for key in objective_keys:
-            if key in self.characteristics.columns:
-                vals = self.characteristics[key]
+        # Log summary for the active metric set.
+        for m, name in zip(metrics, names):
+            if name in self.characteristics.columns:
+                vals = self.characteristics[name]
                 logger.info(
                     "  %s: min=%.2f, max=%.2f, mean=%.2f",
-                    key, vals.min(), vals.max(), vals.mean(),
+                    name, vals.min(), vals.max(), vals.mean(),
                 )
 
         return self.characteristics
@@ -187,7 +199,7 @@ class LibraryGenerator:
         self,
         method: Literal["lhs", "sobol"] = "lhs",
         n_select: int = 100,
-        objective_keys: Optional[Tuple[str, ...]] = None,
+        metric_set=None,
         seed: int = 42,
     ) -> Dict:
         """Subsample the library using a space-filling design in drought space.
@@ -198,25 +210,30 @@ class LibraryGenerator:
         Args:
             method: Subsampling method ("lhs" or "sobol").
             n_select: Number of traces to select.
-            objective_keys: Drought metrics defining the subsampling space.
-                Defaults to the keys used in characterize().
+            metric_set: Drought metric set defining the subsampling space.
+                Either a preset name, a single metric name, a sequence of
+                metric names, or a tuple of :class:`DroughtMetric`. When
+                ``None``, falls back to the metric set used in
+                :meth:`characterize`.
             seed: Random seed for the space-filling design.
 
         Returns:
-            Dict with keys:
-                indices: Array of selected library indices.
-                characteristics: DataFrame of selected trace characteristics.
-                traces: Array of selected traces (n_select, n_months).
-                design_points: The target space-filling points (n_select, d).
-                coverage: Coverage metrics for the selected subset.
+            Dict with keys: indices, characteristics, traces,
+            design_points, selected_points, coverage, bounds,
+            objective_keys.
         """
         if self.characteristics is None:
             raise ValueError(
                 "Library not characterized. Call characterize() first."
             )
 
-        if objective_keys is None:
+        from src.drought_metrics import metric_names, resolve_metric_set
+
+        if metric_set is None:
             objective_keys = self._objective_keys
+        else:
+            metrics = resolve_metric_set(metric_set)
+            objective_keys = metric_names(metrics)
 
         from src.analysis import (
             coverage_metrics,

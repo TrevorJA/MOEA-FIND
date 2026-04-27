@@ -196,9 +196,17 @@ def compute_ssi(
     return ssi, calc
 
 
+#: SSI value below which a month is counted as drought-stressed for
+#: ``time_in_drought_fraction``. Matches SynHydro's "critical drought"
+#: convention. A trace's time-in-drought fraction is independent of the
+#: event-merging logic that aggregates consecutive months into events.
+TIME_IN_DROUGHT_THRESHOLD: float = -1.0
+
+
 def compute_ssi_drought_characteristics(
     ssi_values: pd.Series,
     end_drought_threshold_months: int = 3,
+    monthly_flows: Optional[np.ndarray] = None,
 ) -> Dict:
     """Compute aggregate drought characteristics from SSI series.
 
@@ -214,11 +222,18 @@ def compute_ssi_drought_characteristics(
         ssi_values: SSI pd.Series from SynHydro.
         end_drought_threshold_months: Consecutive positive months to end
             a critical drought.
+        monthly_flows: Optional 1D array of raw monthly flows. When
+            provided, ``q10_flow_neg`` (negated 10th-percentile flow) is
+            included so it can be picked up by the ``q10_flow`` metric.
+            When ``None``, the key is absent and the metric extractor
+            falls back to ``0.0``.
 
     Returns:
-        Dict with frequency (events/decade), mean_duration, mean_magnitude,
-        mean_severity (peak SSI), mean_avg_severity, max_duration,
-        max_magnitude, worst_severity, n_events.
+        Dict with the standard event-level metrics (frequency,
+        mean_duration, mean_magnitude, mean_severity, mean_avg_severity,
+        peak_severity_month, max_duration, max_magnitude, worst_severity,
+        n_events) plus trace-level extras (time_in_drought_fraction, and
+        q10_flow_neg when ``monthly_flows`` is supplied).
     """
     dm = get_drought_metrics(
         ssi_values,
@@ -226,15 +241,35 @@ def compute_ssi_drought_characteristics(
     )
 
     valid_months = ssi_values.dropna()
-    n_years = len(valid_months) / 12.0
+    n_valid = len(valid_months)
+    n_years = n_valid / 12.0 if n_valid > 0 else 0.0
+
+    if n_valid > 0:
+        time_in_drought_fraction = float(
+            (valid_months <= TIME_IN_DROUGHT_THRESHOLD).sum() / n_valid
+        )
+    else:
+        time_in_drought_fraction = 0.0
+
+    base: Dict[str, float] = {
+        "time_in_drought_fraction": time_in_drought_fraction,
+    }
+    if monthly_flows is not None:
+        flows = np.asarray(monthly_flows, dtype=float).flatten()
+        if flows.size > 0:
+            # Negate so that "more drought" → larger objective, matching
+            # the L1 device's sign convention.
+            base["q10_flow_neg"] = float(-np.percentile(flows, 10.0))
 
     if len(dm) == 0:
         return {
+            **base,
             "frequency": 0.0,
             "mean_duration": 0.0,
             "mean_magnitude": 0.0,
             "mean_severity": 0.0,
             "mean_avg_severity": 0.0,
+            "peak_severity_month": 0.0,
             "max_duration": 0.0,
             "max_magnitude": 0.0,
             "worst_severity": 0.0,
@@ -254,7 +289,8 @@ def compute_ssi_drought_characteristics(
         peak_severity_month = 0.0
 
     return {
-        "frequency": float(len(dm) / n_years * 10),
+        **base,
+        "frequency": float(len(dm) / n_years * 10) if n_years > 0 else 0.0,
         "mean_duration": float(dm["duration"].mean()),
         "mean_magnitude": float(dm["magnitude"].abs().mean()),
         "mean_severity": float(dm["severity"].abs().mean()),
@@ -369,11 +405,15 @@ def compute_drought_characteristics(
 
 
 #: Drought characteristic names whose natural metric is a calendar month
-#: (1..12). Used by :func:`src.experiment_utils.compute_ssi_anti_ideal`
-#: to place ``D*`` for these keys **outside** the feasible calendar
-#: range (``12 × headroom`` rather than ``1.5 × max_hist``), which keeps
-#: the DD-11 assumption ``D_j <= D*_j`` intact and therefore preserves
-#: the hyperplane identity in :func:`drought_objectives`.
+#: (1..12).
+#:
+#: Deprecated 2026-04-27: the cyclic-vs-non-cyclic distinction now lives
+#: on :class:`src.drought_metrics.DroughtMetric` instances via the
+#: ``is_cyclic`` flag and the ``CYCLIC_HEADROOM`` anti-ideal rule.
+#: Retained here so that legacy code paths that still pass tuples of
+#: string keys (rather than ``DroughtMetric`` objects) continue to
+#: work; new code should consume metric instances and not consult this
+#: set.
 CYCLIC_MONTH_KEYS = frozenset({
     "peak_severity_month",
     "onset_month",
@@ -383,7 +423,7 @@ CYCLIC_MONTH_KEYS = frozenset({
 def drought_objectives(
     synthetic_chars: dict,
     anti_ideal: np.ndarray,
-    objective_keys: tuple = ("mean_duration", "mean_avg_severity"),
+    objective_keys=("mean_duration", "mean_avg_severity"),
 ) -> np.ndarray:
     """MOEA-FIND L1 Device — the authoritative DD-11 formulation.
 
@@ -422,17 +462,24 @@ def drought_objectives(
             :func:`compute_ssi_drought_characteristics`.
         anti_ideal: Anti-ideal point ``D*`` (K-dim). Must satisfy
             ``D_j <= D*_j`` for every feasible ``D``; produced by
-            :func:`src.experiment_utils.compute_ssi_anti_ideal`.
-        objective_keys: Drought characteristic names used as the first
-            K objectives. Order determines the objective vector layout.
+            :func:`src.drought_metrics.compute_anti_ideal` (or the
+            legacy :func:`src.experiment_utils.compute_ssi_anti_ideal`).
+        objective_keys: Either a tuple of metric names (legacy) or a
+            tuple of :class:`src.drought_metrics.DroughtMetric` instances
+            (new). Order determines the objective vector layout.
 
     Returns:
         Array of length ``K+1``. The first ``K`` entries are the raw
         drought characteristics ``D_j``; the last entry is the Manhattan
         distance ``||D - D*||_1``.
     """
+    # Local import to avoid a top-level cycle (drought_metrics may import
+    # from objectives in the future).
+    from src.drought_metrics import DroughtMetric
+
     target = np.asarray(anti_ideal, dtype=float)
-    k = len(objective_keys)
+    keys = tuple(objective_keys)
+    k = len(keys)
     if target.shape != (k,):
         raise ValueError(
             f"anti_ideal must be length {k} to match objective_keys, "
@@ -440,8 +487,12 @@ def drought_objectives(
         )
 
     metrics = np.zeros(k)
-    for i, key in enumerate(objective_keys):
-        metrics[i] = float(synthetic_chars.get(key, 0.0))
+    if k > 0 and isinstance(keys[0], DroughtMetric):
+        for i, m in enumerate(keys):
+            metrics[i] = float(m.extract(synthetic_chars))
+    else:
+        for i, key in enumerate(keys):
+            metrics[i] = float(synthetic_chars.get(key, 0.0))
 
     objs = np.empty(k + 1)
     objs[:k] = metrics
