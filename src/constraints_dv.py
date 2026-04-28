@@ -16,7 +16,7 @@ Two scalar statistics are available, both bounded in ``[0, 1]``:
 
 Both are bootstrap-calibrated against random ``U[0, 1]`` draws of the same
 length as the DV vector by
-``workflows/diagnostics/diag_dv_uniformity_calibration.py``, which produces
+``workflows/02_calibration/dv_uniformity_calibration.py``, which produces
 ``calibrated_dv_tolerances.json``.
 
 Unlike the hydrologic calibration, the DV calibration only bootstraps the

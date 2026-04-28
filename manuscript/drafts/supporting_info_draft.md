@@ -10,7 +10,39 @@ specific main-text claims rather than anticipating them.*
 specific location in the main text. Target length is approximately three
 thousand words plus figures and tables.*
 
-*Last updated: 2026-04-27 (scaffold reset).*
+*Last updated: 2026-04-28 (workflow reorganization; stage→subsection mapping added).*
+
+## Workflow stage to SI subsection mapping
+
+Each method-consideration driver under [workflows/](../../workflows/) earns
+SI text. The mapping below is the contract: every kept driver in stages 02
+and 04, plus the dimension sweep in stage 01 and the verification/discovery
+drivers in stages 06–07, is referenced below. Drivers that produce only
+intermediate calibration data (no SI figures) are still tracked, with the
+subsection that consumes them noted.
+
+| Driver | SI subsection |
+|---|---|
+| `01_analytic_validation/eps_nfe_sweep.py`            | SI-3 (epsilon and NFE sensitivity) |
+| `01_analytic_validation/dimension_sweep.py`          | SI-2 (interior-filling coverage) |
+| `02_calibration/constraint_calibration.py`           | SI-4b (constraint regime ablation, hydrologic arm) |
+| `02_calibration/dv_uniformity_calibration.py`        | SI-4b (constraint regime ablation, DV-space arm) |
+| `02_calibration/wrapper_fidelity.py`                 | SI-5 (DV parameterisation, fidelity check) |
+| `02_calibration/wrapper_geometry.py`                 | SI-5 (DV parameterisation, geometry check) |
+| `02_calibration/kirsch_convergence.py`               | SI-4 (Borg convergence + Kirsch wall-clock) |
+| `02_calibration/metric_blocks.py`                    | SI-6 (metric set + SSI sensitivity) |
+| `04_moea_find_single_site/wrapper_mode_ablation.py`  | SI-5 (DV parameterisation ablation) |
+| `04_moea_find_single_site/wrapper_mode_compare.py`   | SI-5 (DV parameterisation ablation) |
+| `04_moea_find_single_site/dv_uniformity_ablation.py` | SI-4b (constraint regime ablation) |
+| `04_moea_find_single_site/dv_uniformity_compare.py`  | SI-4b (constraint regime ablation) |
+| `04_moea_find_single_site/event_level.py`            | SI-9 (event-level Kirsch — placeholder below) |
+| `06_pywrdrb_reeval/verify_drought_coverage.py`       | SI-10 (Pareto coverage verification — placeholder below) |
+| `07_scenario_discovery/satisficing_sweep.py`         | SI-11 (satisficing manifold + GBT — placeholder below) |
+| `07_scenario_discovery/scenario_discovery_plots.py`  | SI-11 (satisficing manifold + GBT) |
+
+Each subsection targets approximately 2-3 multi-panel figures (clean,
+multi-panel academic style) plus supporting tables. Subsections SI-9,
+SI-10, and SI-11 below are new placeholders added with this mapping.
 
 ---
 
@@ -44,8 +76,8 @@ thousand words plus figures and tables.*
 
 *Cross-referenced from main-text Section 2.2.4.*
 
-> *Placeholder. Driver: `workflows/experiments/03_eps_nfe_sweep.py`. SLURM
-> array configuration in `workflows/slurm/`. Recommended default epsilon
+> *Placeholder. Driver: `workflows/01_analytic_validation/eps_nfe_sweep.py`. SLURM
+> array configuration in `workflows/0N_<stage>/slurm/`. Recommended default epsilon
 > vector pending HPC sweep completion.*
 
 ---
@@ -66,7 +98,7 @@ thousand words plus figures and tables.*
 
 > *Placeholder. Constraint regime ablation. The set of regimes compared and
 > the production choice are not yet final. Current drivers and diagnostics
-> live in `workflows/experiments/` and `workflows/diagnostics/`; see
+> live in `workflows/0N_<stage>/` and `workflows/0N_<stage>/`; see
 > `planning/code_state.md`.*
 
 ---
@@ -78,7 +110,7 @@ thousand words plus figures and tables.*
 > *Placeholder. The decision-variable parameterisation of the Borg–generator
 > coupling is not yet final. The production choice and any wrapper-mode
 > ablation will be drafted here once settled. Current drivers live in
-> `workflows/experiments/`; see `planning/code_state.md`.*
+> `workflows/0N_<stage>/`; see `planning/code_state.md`.*
 
 ---
 
@@ -115,6 +147,50 @@ multi-site extension makes the main text.*
 > *Placeholder. Reference tables for the production archive will be
 > released as supplementary files at submission. The exact columns released
 > will be defined once §3.2 is written.*
+
+---
+
+## SI-9. Event-level Kirsch objective formulation
+
+*Cross-referenced from main-text Section 2.2 (Fig 5 inset).*
+
+> *Placeholder. Event-level objective formulation that ties Kirsch DVs
+> directly to drought-event characteristics (rather than aggregate
+> series-level statistics). Driver:
+> [`workflows/04_moea_find_single_site/event_level.py`](../../workflows/04_moea_find_single_site/event_level.py).
+> Target 2-3 multi-panel figures: per-event Pareto, sensitivity to event
+> definition window, comparison to series-level objectives. Pending HPC
+> production runs.*
+
+---
+
+## SI-10. Pareto-archive drought coverage verification
+
+*Cross-referenced from main-text Section 3 (Pywr-DRB re-evaluation
+inputs).*
+
+> *Placeholder. Verifies that the Pareto archive supplied to Pywr-DRB
+> covers the drought-characteristic space without gaps before the
+> expensive simulation is committed. Driver:
+> [`workflows/06_pywrdrb_reeval/verify_drought_coverage.py`](../../workflows/06_pywrdrb_reeval/verify_drought_coverage.py).
+> Target 2-3 multi-panel figures: drought-space coverage scatter,
+> per-axis marginal histograms, FDC subset diagnostics.*
+
+---
+
+## SI-11. Satisficing manifold and GBT classifier diagnostics
+
+*Cross-referenced from main-text Section 3.3 / Fig 9.*
+
+> *Placeholder. Per-definition GBT decision-boundary overlays in
+> drought-feature space, classifier ROC summary, manifest status table.
+> Drivers:
+> [`workflows/07_scenario_discovery/satisficing_sweep.py`](../../workflows/07_scenario_discovery/satisficing_sweep.py)
+> and
+> [`workflows/07_scenario_discovery/scenario_discovery_plots.py`](../../workflows/07_scenario_discovery/scenario_discovery_plots.py).
+> Manifest of binary satisficing rules:
+> [`workflows/07_scenario_discovery/satisficing_manifest.yaml`](../../workflows/07_scenario_discovery/satisficing_manifest.yaml).
+> Target 2-3 multi-panel figures.*
 
 ---
 

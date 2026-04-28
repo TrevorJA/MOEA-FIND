@@ -43,7 +43,7 @@ high-dimensional Cannonsville analogue is open (DD-12). See
 **RQ3. Physical plausibility.** Do generated traces satisfy the plausibility
 envelope of the Kirsch-Nowak generator (autocorrelation, seasonal cycle,
 flow-duration curve, cross-site correlation if multi-site)? Constraints are
-calibrated per-experiment by bootstrap (`workflows/diagnostics/diag_constraint_calibration.py`)
+calibrated per-experiment by bootstrap (`workflows/0N_<stage>/diag_constraint_calibration.py`)
 and reported per-run in SI; see DD-05 and DD-14 for the production constraint
 choice.
 
@@ -84,10 +84,10 @@ exit criteria are satisfied or have been explicitly deferred in writing.
 
 | ID | Task | Exit criterion |
 |----|------|----------------|
-| B1 | Epsilon × NFE sensitivity sweep on the analytic benchmark, deferred to HPC. Driver: `workflows/experiments/03_eps_nfe_sweep.py`. | Coverage-vs-epsilon curve produced; recommended default ε stored alongside the aggregate output. |
-| B2 | Single-site Kirsch + SSI-3 objectives + Manhattan, NFE ≥ 50 000. Driver: `workflows/experiments/04_kirsch_single_site.py` in `residual` mode. | Pareto front exists; plausibility spot-check passes (lag-1 ACF, FDC, seasonal cycle). |
+| B1 | Epsilon × NFE sensitivity sweep on the analytic benchmark, deferred to HPC. Driver: `workflows/01_analytic_validation/eps_nfe_sweep.py`. | Coverage-vs-epsilon curve produced; recommended default ε stored alongside the aggregate output. |
+| B2 | Single-site Kirsch + SSI-3 objectives + Manhattan, NFE ≥ 50 000. Driver: `workflows/04_moea_find_single_site/run_moea_find.py` in `residual` mode. | Pareto front exists; plausibility spot-check passes (lag-1 ACF, FDC, seasonal cycle). |
 | B3 | Re-run B2 with bootstrap-calibrated constraints. | Constrained Pareto retains ≥80 % of unconstrained hypervolume; no plausibility failures. |
-| B4 | Generate 10 000-trace Kirsch library and subsample (LHS, Sobol, random). Drivers: `workflows/experiments/05_kirsch_library_build.py`, `workflows/experiments/06_library_subsample_baseline.py`. | Comparison table and headline coverage figure produced. |
+| B4 | Generate 10 000-trace Kirsch library and subsample (LHS, Sobol, random). Drivers: `workflows/0N_<stage>/05_kirsch_library_build.py`, `workflows/0N_<stage>/06_library_subsample_baseline.py`. | Comparison table and headline coverage figure produced. |
 | B5 | Plausibility report (ACF, FDC, seasonal cycle, Hurst). Currently bundled into script 04 via `--plot`. | Diagnostic figure in `figures/`. |
 
 ### Phase C. HPC transition
@@ -95,9 +95,9 @@ exit criteria are satisfied or have been explicitly deferred in writing.
 | ID | Task | Exit criterion |
 |----|------|----------------|
 | C1 | MM Borg Python wrapper installed on HPC; smoke test on a standard MOEA test problem. | Wrapper runs end-to-end on login or interactive node. |
-| C2 | Wire MM Borg into `workflows/experiments/04_kirsch_single_site.py` with checkpointing (`passNFE_ALH_PyCheckpoint` branch). | Checkpoint-restart test passes (identical Pareto within ε after resume). |
+| C2 | Wire MM Borg into `workflows/04_moea_find_single_site/run_moea_find.py` with checkpointing (`passNFE_ALH_PyCheckpoint` branch). | Checkpoint-restart test passes (identical Pareto within ε after resume). |
 | C3 | Cannonsville single-site MOEA-FIND runs at production NFE and ≥5 seeds. | Seed-averaged Pareto archive; coverage metrics reported vs library subsample. |
-| C4 | Section 3.3 Pywr-DRB policy re-evaluation on the Cannonsville archive and on the LHS baseline. Driver: `workflows/experiments/09_drb_policy_reeval.py`. | Operational failure labels computed; classifier comparison produced. |
+| C4 | Section 3.3 Pywr-DRB policy re-evaluation on the Cannonsville archive and on the LHS baseline. Driver: `workflows/0N_<stage>/09_drb_policy_reeval.py`. | Operational failure labels computed; classifier comparison produced. |
 
 ### Phase D. Manuscript drafting (parallel with Phase C)
 

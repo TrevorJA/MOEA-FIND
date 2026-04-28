@@ -3,7 +3,7 @@
 Single source of truth for the knobs that define a MOEA-FIND run:
 metric set, anti-ideal placement, epsilons, NFE, trace length, DV
 injection mode, algorithm, and constraint source. Experiment driver
-scripts (e.g. ``workflows/experiments/04_kirsch_single_site.py``) read
+scripts (e.g. ``workflows/04_moea_find_single_site/run_moea_find.py``) read
 their defaults from :data:`DEFAULT_EXPERIMENT`, which can be either (a)
 used as-is, (b) overridden by CLI args, or (c) replaced with a
 site-specific :class:`ExperimentConfig` instance built at call time.

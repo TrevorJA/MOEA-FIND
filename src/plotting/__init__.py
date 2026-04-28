@@ -2,7 +2,7 @@
 
 Modular, manuscript-specific figure building blocks. Each submodule carries
 a header comment mapping its functions to the manuscript section / figure
-they produce. Scripts under ``workflows/experiments/`` import from here rather than
+they produce. Scripts under ``workflows/0N_<stage>/`` import from here rather than
 defining their own plotting code.
 
 Submodules

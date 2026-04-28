@@ -1,79 +1,91 @@
-# MOEA-FIND Workflows
+# MOEA-FIND workflows
 
-All numerical experiments for the manuscript live in this directory, organized as:
+Stage-organized experimental pipeline for the MOEA-FIND manuscript.
+Each stage is a self-contained folder with its driver scripts, YAML
+configs, SLURM batch files, and a `README.md` that explains how to run
+that stage. Open the per-stage README to find everything you need —
+no jumping between sibling folders.
 
-```
-workflows/
-  _common.sh              # shared SLURM/bash helpers (modules, venv, MPI launcher)
-  experiments/             # numbered Python experiment drivers
-    01_analytic_2d.py
-    ...
-  slurm/                   # matching SLURM batch scripts
-    01_analytic_2d.slurm
-    ...
-    slurm_logs/            # SLURM stdout/stderr logs (gitignored)
-  diagnostics/             # standalone diagnostic/calibration scripts
-    diag_constraint_calibration.py
-    ...
-```
+## Stages
 
-Each experiment is one numbered Python driver (in `experiments/`) plus one matching SLURM batch script (in `slurm/`). Every entry below is pinned to a specific section and figure of the manuscript draft.
+| Stage | Section(s) | Purpose | Run order |
+|---|---|---|---|
+| [01_analytic_validation](01_analytic_validation/) | §5, SI-1 | Manhattan-norm proof on synthetic objective space; K=1..6 dimension sweep | Standalone |
+| [02_calibration](02_calibration/)                 | SI-A..E   | Constraint, DV-uniformity, wrapper, Kirsch convergence calibrations    | Before 03, 04 |
+| [03_kirsch_library](03_kirsch_library/)           | §6.3 (Fig 7) | Library + LHS/Sobol subsample baseline                              | After 02, before 04 |
+| [04_moea_find_single_site](04_moea_find_single_site/) | §6.1-6.4, SI-F..H | Core single-site MOEA-FIND + ablations                            | After 02, 03 |
+| [05_moea_find_multisite](05_moea_find_multisite/)     | §7.1-7.2 (Fig 8) | DRB multi-site application                                       | After 02 |
+| [06_pywrdrb_reeval](06_pywrdrb_reeval/)               | §7.3, SI-I    | Pywr-DRB simulation on Pareto droughts (simulation only)         | After 04 or 05 |
+| [07_scenario_discovery](07_scenario_discovery/)       | §7.3 (Fig 9), SI-J | Satisficing labels + GBT classifiers (post-processing)      | After 06 |
+| [08_nyc_sensitivity](08_nyc_sensitivity/)             | (planned)     | Exploratory-modeling sensitivity of NYC reservoir outcomes       | Placeholder; later session |
+| [99_manuscript_figures](99_manuscript_figures/)       | All           | Regenerate `figures/main/` and `figures/supplementary/` from upstream outputs | After all upstream stages |
 
-## Manuscript mapping
-
-| ID | Script | Manuscript section | Figure(s) | Parallel model |
-|----|--------|--------------------|-----------|----------------|
-| 01 | `01_analytic_2d.py` | §5 Analytic Validation | Fig 1, 2 | serial |
-| 02 | `02_analytic_3d.py` | §5 Analytic Validation | Fig 2 | serial |
-| 03 | `03_eps_nfe_sweep.py` | §5 Analytic Validation | Fig 3 | SLURM job array (one task per (ε, NFE, seed) cell) |
-| 04 | `04_kirsch_single_site.py` | §6.1–6.2 Single-Site Kirsch | Fig 5, 6 | MPI master-worker (MM Borg) |
-| 05 | `05_kirsch_library_build.py` | §6.3 Library Baseline | Fig 7 | mpi4py work queue |
-| 06 | `06_library_subsample_baseline.py` | §6.3 Library Baseline | Fig 7 | serial (vectorized) |
-| 07 | `07_event_level_kirsch.py` | §6.4 Event-level Formulation | Fig 5 (inset) | MPI master-worker (MM Borg) |
-| 08 | `08_drb_multisite_moea.py` | §7.1–7.2 DRB Case Study | Fig 8 | MPI master-worker (MM Borg) |
-| 09 | `09_drb_policy_reeval.py` | §7.3 Policy Re-evaluation | Fig 9 | serial (hand-off to Pywr-DRB) |
-| 10 | `10_plot_manuscript_figures.py` | All §/SI figures | Fig 1-9, SI-1, SI-4 | serial; reads every `outputs/expNN_*/` and regenerates PDF figures |
-
-Each `NN_*.slurm` file is a thin wrapper around the matching `NN_*.py`. It sources `_common.sh` for module loads, environment activation, and logging conventions, sets the SLURM topology for the experiment, and calls Python with the appropriate arguments.
-
-## Plotting policy
-
-**All plotting code lives in [`src/plotting/`](../src/plotting/).** Scripts must never define their own plotting functions inline beyond a three-line `fig.savefig(...)` wrapper. Each function in `src/plotting/` is tagged with the manuscript section and figure it produces:
-
-| Module | Figures |
-|---|---|
-| `src/plotting/style.py` | shared `rcParams`, color palette, water-year month labels |
-| `src/plotting/analytic.py` | Fig 1 (concept), Fig 2 (2D/3D analytic), Fig 3 (ε-NFE heatmap), SI-1 (hyperplane) |
-| `src/plotting/drought_space.py` | Fig 5 (Kirsch Pareto), Fig 8 (DRB multi-site) |
-| `src/plotting/coverage.py` | Fig 7 (library vs MOEA-FIND coverage) |
-| `src/plotting/trace_diagnostics.py` | Fig 6 (plausibility: acf, FDC, seasonal cycle, Hurst) |
-| `src/plotting/convergence.py` | SI-4 (Borg convergence diagnostics) |
-
-Individual experiment scripts (01-09) call these when invoked with `--plot` and write their working PDFs to `figures/`. Script `10_plot_manuscript_figures.py` is the **single source of truth for the publication figure set**: it reads every available `outputs/expNN_*/` directory and regenerates `figures/fig*.pdf` from scratch. Any figure that appears in the manuscript must be produced by script 10.
+The numeric prefix preserves manuscript-narrative ordering. New stages
+inserted into the sequence get a `0Na_` suffix rather than renumbering
+(per the policy from the previous workflow layout).
 
 ## Conventions
 
-- **Outputs.** Each script writes to `outputs/expNN_<slug>/` with `results.json`, any `*.npz` artifacts, and a `config.json` recording the invocation. `--plot` additionally writes a PDF figure to `figures/figNN_<slug>.pdf`.
-- **Determinism.** Every driver takes `--seed`. Multi-seed experiments pass `--seeds` as a space-separated list.
-- **SynHydro dependency.** Scripts that need SynHydro import it at runtime. Analytic drivers (01, 02, 03) stub it so they can run in a bare Python environment.
-- **Borg.** Scripts tagged *MM Borg* expect `borg.py` and compiled binaries on `PYTHONPATH`. See `REPRODUCE.md` (TBD) for the Borg license and build workflow on HPC.
+- **Drivers.** One Python `.py` file per experiment, located inside
+  the stage folder (not in a separate `experiments/` directory).
+- **SLURM.** Each stage has a `slurm/` subfolder with one `.slurm`
+  per driver. Cluster-debugging SLURM files without a matching `.py`
+  live under `workflows/_scratch/slurm/` and are not part of the
+  reproducible pipeline. `_common.sh` (module loads, venv activation,
+  log directory) stays at the top level and is sourced by every
+  SLURM script via `${SLURM_SUBMIT_DIR}/workflows/_common.sh`.
+- **Logs.** All SLURM stdout/stderr land in `workflows/slurm_logs/`
+  (gitignored). One central directory across all stages.
+- **YAML configs.** Stage 04 supports YAML presets for ablation arms
+  (`workflows/04_moea_find_single_site/configs/*.yaml`). The driver
+  takes `--config <path>`; CLI flags still override loaded values.
+- **Outputs.** Every driver writes to `outputs/expNN_<slug>/<variant>/`
+  with `config.json` (invocation record), `results.json` (summary),
+  and stage-specific artifacts. See [outputs/README.md](../outputs/README.md)
+  for the slug catalog.
+- **Slugs.** Variant slugs are built by `src.slugs.*` (preferred) or
+  the legacy `src.experiment_utils.make_variant_slug` (kept for
+  back-compat with existing output directories). Format:
+  `stage__key=val__key=val__s=seed`. See `src/slugs.py` for the
+  stage-specific helpers.
+- **Determinism.** Every driver takes `--seed`; output slugs encode it.
+- **Figures.** Working figures land in `figures/<stage>/`. Confirmed
+  manuscript figures live in `figures/main/` and
+  `figures/supplementary/` and are regenerated only by stage 99.
+
+## Plotting policy
+
+All plotting code lives in [`src/plotting/`](../src/plotting/). Drivers
+must not define inline plotting beyond a thin `fig.savefig(...)` wrapper.
+See `99_manuscript_figures/README.md` for the figure promotion contract.
+
+## SI subsection mapping
+
+Each method-consideration script earns SI text. The mapping below is
+mirrored in [manuscript/drafts/](../manuscript/drafts/) as one stub per
+subsection.
+
+| SI subsection | Driver |
+|---|---|
+| §SI-A Constraint calibration         | `02_calibration/constraint_calibration.py` |
+| §SI-B DV-uniformity calibration      | `02_calibration/dv_uniformity_calibration.py` |
+| §SI-C Wrapper fidelity & geometry    | `02_calibration/wrapper_fidelity.py` + `wrapper_geometry.py` |
+| §SI-D Kirsch convergence             | `02_calibration/kirsch_convergence.py` |
+| §SI-E Metric-set historical blocks   | `02_calibration/metric_blocks.py` |
+| §SI-F Wrapper-mode ablation          | `04_moea_find_single_site/wrapper_mode_ablation.py` |
+| §SI-G DV-uniformity ablation         | `04_moea_find_single_site/dv_uniformity_ablation.py` |
+| §SI-H Event-level Kirsch             | `04_moea_find_single_site/event_level.py` |
+| §SI-I Drought-coverage verification  | `06_pywrdrb_reeval/verify_drought_coverage.py` |
+| §SI-J Satisficing manifold + GBT     | `07_scenario_discovery/satisficing_sweep.py` + `scenario_discovery_plots.py` |
+
+Each subsection targets ~2-3 multi-panel SI figures (clean, multi-panel
+academic style). The secondary scoping task tightens these to budget.
 
 ## Local vs HPC
 
-- **Local smoke tests** (workstation): `python scripts/NN_*.py --help` for the CLI, run with small `--nfe` and `--seeds`.
-- **HPC production runs**: `sbatch scripts/NN_*.slurm` after editing `_common.sh` for your cluster's module and partition names.
-
-## Cluster setup
-
-`_common.sh` centralizes:
-- `#SBATCH` account/partition defaults (override in each `.slurm` as needed).
-- Module loads (`module load python mpi`).
-- Virtualenv activation.
-- `PYTHONPATH` export so `src/` imports resolve.
-- `slurm_logs/` directory creation.
-
-Edit the `CLUSTER_*` variables at the top of `_common.sh` once per HPC; individual `.slurm` files should not need per-cluster edits.
-
-## Numbering policy
-
-Scripts are numbered in *manuscript narrative order*, not chronological. If a new experiment is inserted, it gets a `NNa_` suffix rather than renumbering (e.g., `04a_kirsch_single_site_alt_threshold.py`). Section reordering in a WRR methods paper is rare once the outline is fixed; the numeric prefix buys you the "where does this figure come from" lookup at `ls` time.
+- **Local smoke test:** `python workflows/0N_<stage>/<driver>.py --help`
+  for the CLI; run with small `--nfe` (analytic stages run on a bare
+  Python environment without SynHydro).
+- **HPC production:**
+  `sbatch workflows/0N_<stage>/slurm/<driver>.slurm` after editing
+  `_common.sh` for your cluster's module and partition names.

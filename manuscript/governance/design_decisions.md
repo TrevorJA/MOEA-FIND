@@ -37,7 +37,7 @@ The exact trace length and the trace-vs-event question are tied to the
 choice of drought metrics in DD-04 and may shift with that decision.
 
 **Pointer:** `drafts/manuscript_main_draft.md` §2.4;
-`workflows/experiments/04_kirsch_single_site.py`.
+`workflows/04_moea_find_single_site/run_moea_find.py`.
 
 ---
 
@@ -153,7 +153,7 @@ inverse transform, and Dec–Jan handling.
 
 The choice between the two injection modes for production is an open
 sub-decision tracked in `code_alignment_backlog.md` and exercised by
-the wrapper-mode ablation experiments in `workflows/experiments/15_*` and
+the wrapper-mode ablation experiments in `workflows/0N_<stage>/15_*` and
 `16_*`.
 
 **Pointer:** `src/kirsch_wrapper.py`.
@@ -207,8 +207,8 @@ The closest published precedent is Bonham et al. (2024), who subsample in
 generator *input* space rather than drought *characteristic* space; that
 contrast is one of the paper's positioning points.
 
-**Pointer:** `src/library.py`; `workflows/experiments/05_kirsch_library_build.py`;
-`workflows/experiments/06_library_subsample_baseline.py`.
+**Pointer:** `src/library.py`; `workflows/0N_<stage>/05_kirsch_library_build.py`;
+`workflows/0N_<stage>/06_library_subsample_baseline.py`.
 
 ---
 
@@ -320,7 +320,7 @@ and if no disconnected feasible component is visible. Audit failure forces
 caveat naming the dimensionality and epsilon budget at which it appears.
 
 **Implementation.** Post-processing script analogous to
-`workflows/diagnostics/diag_shell_vs_interior.py`, applied to the Phase β
+`workflows/0N_<stage>/diag_shell_vs_interior.py`, applied to the Phase β
 archive and the Phase γ library.
 
 ---
@@ -345,7 +345,7 @@ the draft. Use those, not this entry.
 Production runs use a single Anderson-Darling goodness-of-fit statistic on
 the flattened decision-variable vector against $U[0, 1]^d$, with the
 tolerance bootstrap-calibrated against uniform samples
-(`workflows/diagnostics/diag_dv_uniformity_calibration.py`). The constraint
+(`workflows/0N_<stage>/diag_dv_uniformity_calibration.py`). The constraint
 is a soft constraint under Deb (2000) constraint domination.
 
 **Rationale.**
@@ -363,7 +363,7 @@ is a soft constraint under Deb (2000) constraint domination.
 - *Comparable coverage.* The drought-characteristic coverage achieved
   under AD was within seed-level noise of the hydrologic baseline at
   production NFE, on the empirical comparison documented in
-  `workflows/experiments/13_dv_uniformity_ablation.py` and
+  `workflows/04_moea_find_single_site/dv_uniformity_ablation.py` and
   `14_dv_uniformity_compare.py`.
 
 The hydrologic five-statistic regime and the L2-star DV regime are retained
@@ -376,6 +376,6 @@ specific coverage numbers tied to that comparison are not preserved here
 because DD-04 may change.
 
 **Pointer:** `src/constraints_dv.py`;
-`workflows/experiments/04_kirsch_single_site.py` (production driver,
+`workflows/04_moea_find_single_site/run_moea_find.py` (production driver,
 default `--constraint-mode dv_uniform --statistic ad`);
-`workflows/diagnostics/diag_dv_uniformity_calibration.py`.
+`workflows/0N_<stage>/diag_dv_uniformity_calibration.py`.

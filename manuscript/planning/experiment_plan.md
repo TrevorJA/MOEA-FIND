@@ -58,30 +58,30 @@ and in `reference/reviewer_defenses.md` HC-2.
 Part B in earlier versions of this document tracked TODOs T-01 through T-10
 against an `scripts/hpc/section32_*.slurm` layout that has since been
 superseded. The current production pipeline lives under
-`workflows/experiments/` with one-to-one SLURM wrappers under
-`workflows/slurm/`. The relevant scripts are:
+`workflows/0N_<stage>/` with one-to-one SLURM wrappers under
+`workflows/0N_<stage>/slurm/`. The relevant scripts are:
 
 | Stage | Script | Purpose |
 |-------|--------|---------|
-| §3.2 single-site MOEA | `workflows/experiments/04_kirsch_single_site.py` | Single-site Kirsch + SSI-3 objectives + Manhattan; production-ready. |
-| §3.2 library | `workflows/experiments/05_kirsch_library_build.py` | 10 k+ Kirsch-Nowak library generation. |
-| §3.2 baseline | `workflows/experiments/06_library_subsample_baseline.py` | LHS / Sobol / random subsampling of the library. |
-| §3.2 figures | `workflows/experiments/10_plot_manuscript_figures.py` | Headline coverage figure assembly. |
-| §3.2 baseline comparison | `workflows/experiments/11_baseline_comparison.py` | MOEA-FIND vs library coverage. |
-| §3.3 policy re-eval | `workflows/experiments/09_drb_policy_reeval.py` | Four-stage Pywr-DRB pipeline: replay Pareto DVs → multi-site daily → simulate → classify. Uses `src/pywrdrb_bridge.py`, `src/satisficing_metrics.py`, `src/satisficing_labels.py`, `src/scenario_discovery.py`. |
-| §3.3 satisficing sweep | `workflows/experiments/12_satisficing_sweep.py` | Sweep satisficing thresholds for robustness. |
-| §3.3 plots | `workflows/experiments/17_drb_scenario_discovery_plots.py` | Decision boundary and feature-importance figures. |
+| §3.2 single-site MOEA | `workflows/04_moea_find_single_site/run_moea_find.py` | Single-site Kirsch + SSI-3 objectives + Manhattan; production-ready. |
+| §3.2 library | `workflows/0N_<stage>/05_kirsch_library_build.py` | 10 k+ Kirsch-Nowak library generation. |
+| §3.2 baseline | `workflows/0N_<stage>/06_library_subsample_baseline.py` | LHS / Sobol / random subsampling of the library. |
+| §3.2 figures | `workflows/0N_<stage>/10_plot_manuscript_figures.py` | Headline coverage figure assembly. |
+| §3.2 baseline comparison | `workflows/0N_<stage>/11_baseline_comparison.py` | MOEA-FIND vs library coverage. |
+| §3.3 policy re-eval | `workflows/0N_<stage>/09_drb_policy_reeval.py` | Four-stage Pywr-DRB pipeline: replay Pareto DVs → multi-site daily → simulate → classify. Uses `src/pywrdrb_bridge.py`, `src/satisficing_metrics.py`, `src/satisficing_labels.py`, `src/scenario_discovery.py`. |
+| §3.3 satisficing sweep | `workflows/0N_<stage>/12_satisficing_sweep.py` | Sweep satisficing thresholds for robustness. |
+| §3.3 plots | `workflows/0N_<stage>/17_drb_scenario_discovery_plots.py` | Decision boundary and feature-importance figures. |
 
 Diagnostics that gate the pipeline:
 
 | Diagnostic | Purpose |
 |-----------|---------|
-| `workflows/diagnostics/diag_constraint_calibration.py` | Bootstrap-calibrate the five hydrologic constraints per trace length. |
-| `workflows/diagnostics/diag_dv_uniformity_calibration.py` | Calibrate the DV-uniformity ablation constraint. |
-| `workflows/diagnostics/diag_kirsch_convergence.py` | Pareto size and hypervolume vs NFE. |
-| `workflows/diagnostics/diag_kirsch_wrapper_fidelity.py` | Validate Kirsch wrapper output against direct SynHydro. |
-| `workflows/diagnostics/diag_kirsch_wrapper_geometry.py` | Geometric properties of the wrapper DV mapping. |
-| `workflows/diagnostics/diag_shell_vs_interior.py` | Shell-vs-interior K=2..6 sweep underlying DD-11 and `evidence/shell_vs_interior_diagnostic.md`. |
+| `workflows/0N_<stage>/diag_constraint_calibration.py` | Bootstrap-calibrate the five hydrologic constraints per trace length. |
+| `workflows/0N_<stage>/diag_dv_uniformity_calibration.py` | Calibrate the DV-uniformity ablation constraint. |
+| `workflows/0N_<stage>/diag_kirsch_convergence.py` | Pareto size and hypervolume vs NFE. |
+| `workflows/0N_<stage>/diag_kirsch_wrapper_fidelity.py` | Validate Kirsch wrapper output against direct SynHydro. |
+| `workflows/0N_<stage>/diag_kirsch_wrapper_geometry.py` | Geometric properties of the wrapper DV mapping. |
+| `workflows/0N_<stage>/diag_shell_vs_interior.py` | Shell-vs-interior K=2..6 sweep underlying DD-11 and `evidence/shell_vs_interior_diagnostic.md`. |
 
 For the current snapshot of `src/` and `workflows/` and the alignment between
 each module and the manuscript, see `code_state.md`. For per-experiment

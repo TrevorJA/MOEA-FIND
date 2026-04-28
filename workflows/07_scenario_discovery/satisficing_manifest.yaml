@@ -1,0 +1,60 @@
+# Starter satisficing manifest for the MOEA-FIND Pywr-DRB re-evaluation.
+#
+# Each entry maps a column of the metric bank (src/satisficing_metrics.py)
+# to a binary satisficing rule. The metric bank is computed once per
+# ensemble (expensive) and the rules below are applied cheaply, so new
+# rules can be added or tuned without re-running Pywr-DRB.
+#
+# Convention: y = 1 means "satisficing" (success), y = 0 means "not
+# satisficing". The `direction` is how the metric compares to the
+# threshold for the positive class:
+#   le (<=), lt (<), ge (>=), gt (>)
+#
+# The five definitions below span complementary failure modes: FFMP
+# drought-emergency exposure, minimum storage depth, flow-target
+# reliability, NYC supply reliability, and NYC delivery vulnerability.
+# This is a starting set; add/adjust entries freely and re-run via
+# workflows/07_scenario_discovery/satisficing_sweep.py — no Pywr-DRB re-run
+# required.
+
+- definition_id: ffmp_no_emergency
+  metric: days_L6
+  threshold: 0
+  direction: le
+  description: "No FFMP drought-emergency (Level 6) days over the horizon."
+
+- definition_id: nyc_storage_above_25pct
+  metric: nyc_min_storage_frac
+  threshold: 0.25
+  direction: ge
+  description: "NYC combined storage never drops below 25% of capacity."
+
+- definition_id: trenton_flow_reliability_99pct
+  metric: trenton_flow_reliability
+  threshold: 0.99
+  direction: ge
+  description: "Trenton flow target met at least 99% of days (equiv flow)."
+
+- definition_id: montague_flow_reliability_99pct
+  metric: montague_flow_reliability
+  threshold: 0.99
+  direction: ge
+  description: "Montague flow target met at least 99% of days."
+
+- definition_id: montague_flow_vulnerability_low
+  metric: montague_flow_vulnerability
+  threshold: 0.10
+  direction: le
+  description: "Worst-event Montague flow vulnerability (max deficit / mean target) below 10%."
+
+- definition_id: nyc_delivery_reliability_98pct
+  metric: nyc_delivery_reliability
+  threshold: 0.98
+  direction: ge
+  description: "NYC delivery meets demand at least 98% of days."
+
+- definition_id: nyc_delivery_vulnerability_low
+  metric: nyc_delivery_vulnerability
+  threshold: 0.10
+  direction: le
+  description: "Worst-event delivery vulnerability (max shortfall / mean demand) below 10%."

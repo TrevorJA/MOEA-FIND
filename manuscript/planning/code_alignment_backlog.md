@@ -1,10 +1,10 @@
 # Code Alignment Backlog
 
-*Originally prepared 2026-04-15 from comparison of `manuscript_main_draft.md` §2.2.4 against `src/constraints.py` and the analytic experiment scripts. Bootstrap-calibration guidance referenced below as `generator_constraints_review.md` was rolled into per-experiment SI reporting and the diagnostic at `workflows/diagnostics/diag_constraint_calibration.py`.*
+*Originally prepared 2026-04-15 from comparison of `manuscript_main_draft.md` §2.2.4 against `src/constraints.py` and the analytic experiment scripts. Bootstrap-calibration guidance referenced below as `generator_constraints_review.md` was rolled into per-experiment SI reporting and the diagnostic at `workflows/0N_<stage>/diag_constraint_calibration.py`.*
 
 *Framing principle: the manuscript is the specification. Items below are places where the code has not yet been updated to match it. Items marked [TREV-DECISION] require authorial choice before the code alignment can be completed.*
 
-*2026-04-19 update: Items 1, 2, and 4 are retired. The manuscript §2.2.4 no longer pre-specifies constraint tolerances. Instead, tolerances are calibrated by bootstrap per experiment (via `workflows/diagnostics/diag_constraint_calibration.py`) and reported in the Supporting Information for each run. The pre-2026-04-19 §2.2.4 prose hard-coded lag-1 AC = 0.05 and non-drought mean = 15 %, which the 200K NFE Cannonsville run did not use; softening the prose to the per-experiment-reporting posture eliminates the mismatch without forcing a code-side change. Items 3, 5, 6, 7 remain active.*
+*2026-04-19 update: Items 1, 2, and 4 are retired. The manuscript §2.2.4 no longer pre-specifies constraint tolerances. Instead, tolerances are calibrated by bootstrap per experiment (via `workflows/0N_<stage>/diag_constraint_calibration.py`) and reported in the Supporting Information for each run. The pre-2026-04-19 §2.2.4 prose hard-coded lag-1 AC = 0.05 and non-drought mean = 15 %, which the 200K NFE Cannonsville run did not use; softening the prose to the per-experiment-reporting posture eliminates the mismatch without forcing a code-side change. Items 3, 5, 6, 7 remain active.*
 
 ---
 
@@ -216,8 +216,8 @@ dimension in the core paper's fig09 or relegate to a follow-up?]
 modules to `src/` (`pywrdrb_bridge.py`, `multisite_data.py`,
 `scenario_discovery.py`, `satisficing_metrics.py`, `satisficing_labels.py`,
 `constraints_dv.py`, `historical_blocks.py`) and reorganised experiments
-into `workflows/experiments/` (numbered 01–17) with one-to-one SLURM
-wrappers under `workflows/slurm/`. None of this is reflected in
+into `workflows/0N_<stage>/` (numbered 01–17) with one-to-one SLURM
+wrappers under `workflows/0N_<stage>/slurm/`. None of this is reflected in
 CLAUDE.md, including the explicit "Pending Phase 2 Experiment 2.1, 2.3"
 note which is no longer accurate.
 

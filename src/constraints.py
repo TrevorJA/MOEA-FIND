@@ -6,7 +6,7 @@ target drought metrics through unrealistic flow patterns. The constraint set
 is deliberately simple (no Hurst exponent, no lag-2 AC) and relies on
 **bootstrap-calibrated tolerances** rather than hand-picked ones: tolerances
 are loaded from ``ConstraintConfig``, which in turn is produced by
-``workflows/diagnostics/diag_constraint_calibration.py``.
+``workflows/02_calibration/constraint_calibration.py``.
 
 Every constraint function returns a :class:`Violation` that carries both a
 hard-infeasibility magnitude and a soft quadratic penalty:
@@ -49,7 +49,7 @@ class ConstraintConfig:
     """Calibrated constraint tolerances and precomputed historical references.
 
     Populated from ``calibrated_tolerances.json`` written by
-    ``workflows/diagnostics/diag_constraint_calibration.py``. All ``*_tol`` fields are the
+    ``workflows/02_calibration/constraint_calibration.py``. All ``*_tol`` fields are the
     calibrated *half-width* of the 95% bootstrap CI of the corresponding
     statistic at the target trace length. The hard-infeasibility cut-off is
     ``hard_multiplier * tol`` for every statistic.

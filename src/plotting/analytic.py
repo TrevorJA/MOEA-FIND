@@ -1,7 +1,7 @@
 """Analytic proof-of-concept figure building blocks.
 
 Each function here is a *reusable panel* targeted at a specific manuscript
-figure. Callers (workflows/experiments/01, 02, 03, 10) compose
+figure. Callers (workflows/01_analytic_validation/ and 99_manuscript_figures/) compose
 them into final figures with layout conventions pinned to the manuscript
 display-item specification (single-column ~3.5 in, 1.5-column ~5.5 in,
 double-column ~7.0 in at WRR).
@@ -398,7 +398,7 @@ def fig3_manhattan_construction(
     ----------
     diag_root : path-like, optional
         Directory containing k2/samples.npz and k2/results.json from
-        ``workflows/diagnostics/diag_shell_vs_interior.py``. Defaults to
+        ``workflows/01_analytic_validation/dimension_sweep.py``. Defaults to
         ``outputs/diag_shell_vs_interior`` relative to the project root.
     """
     from pathlib import Path
@@ -417,7 +417,7 @@ def fig3_manhattan_construction(
     if not samples_path.exists():
         raise FileNotFoundError(
             f"Fig 3 requires Borg samples at {samples_path}. "
-            "Run workflows/diagnostics/diag_shell_vs_interior.py --k 2."
+            "Run workflows/01_analytic_validation/dimension_sweep.py --k 2."
         )
     samples = dict(np.load(samples_path))
     borg = samples["borg"]     # (n, 2) — J_1 = x_1, J_2 = x_2

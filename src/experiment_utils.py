@@ -223,6 +223,13 @@ def make_variant_slug(
 ) -> str:
     """Build a deterministic, filesystem-safe variant identifier.
 
+    .. deprecated::
+        New stages should call :func:`src.slugs.moea_slug` (and the other
+        stage helpers in ``src.slugs``) instead. This helper is kept as
+        the existing caller contract for stages 04, 09, 10, 11, 13–16:
+        changing the slug format would rename existing output directories
+        and break those pipelines, so the migration is planned per-stage.
+
     The slug encodes all parameters that distinguish experiment runs so that
     each unique configuration gets its own output directory.
 

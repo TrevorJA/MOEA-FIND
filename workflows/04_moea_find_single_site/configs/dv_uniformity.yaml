@@ -1,0 +1,27 @@
+# DV-uniformity ablation comparison arms (SI-G).
+#
+# Used to compare hydrologic vs DV-space constraint regimes. Run
+# run_moea_find.py once with constraint_mode=hydrologic and once with
+# constraint_mode=dv_uniform; otherwise the configurations match.
+#
+# The arm is selected at the CLI:
+#   python run_moea_find.py --config dv_uniformity.yaml --constraint-mode hydrologic
+#   python run_moea_find.py --config dv_uniformity.yaml --constraint-mode dv_uniform
+mode: residual
+n_years: 20
+ssi: 3
+metric_set: primary
+
+# Both arms are pre-staged here; pick one via --constraint-mode.
+constraint_mode: dv_uniform
+statistic: ad
+dv_uniformity_json: outputs/diag_dv_uniformity_calibration/calibrated_dv_tolerances.json
+constraints_json: outputs/diag_constraint_calibration/calibrated_tolerances.json
+
+algorithm: borg_mm
+nfe: 200000
+seed: 42
+n_islands: 4
+checkpoint_freq: 1000
+
+site_label: cannonsville

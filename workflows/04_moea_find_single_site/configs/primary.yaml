@@ -1,0 +1,24 @@
+# Primary single-site MOEA-FIND arm.
+#
+# Residual DV mode with the DV-space uniformity (Anderson-Darling)
+# constraint. This is the manuscript's main-text result for §6.1-6.2.
+#
+# Loaded by `run_moea_find.py --config primary.yaml`. Any flag passed
+# explicitly on the command line overrides the value here.
+mode: residual
+n_years: 20
+ssi: 3
+metric_set: primary
+
+constraint_mode: dv_uniform
+statistic: ad
+dv_uniformity_json: outputs/diag_dv_uniformity_calibration/calibrated_dv_tolerances.json
+
+# Optimization
+algorithm: borg_mm
+nfe: 200000
+seed: 42
+n_islands: 4
+checkpoint_freq: 1000
+
+site_label: cannonsville

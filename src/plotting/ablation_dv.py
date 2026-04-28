@@ -1,7 +1,7 @@
 """Plotting composition helpers for the DV-uniformity ablation SI figures.
 
 Wraps the existing primitives in :mod:`src.plotting.trace_diagnostics` so the
-compare script (``workflows/experiments/14_dv_uniformity_compare.py``) can
+compare script (``workflows/04_moea_find_single_site/dv_uniformity_compare.py``) can
 render side-by-side or overlaid comparisons of the hydrologic arm and the
 DV-uniform arm against the same historical block envelope, without
 duplicating the envelope-percentile machinery.

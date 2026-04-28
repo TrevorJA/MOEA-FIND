@@ -110,7 +110,7 @@ becomes active only for pathological decision vectors. The 15% non-drought
 mean-flow tolerance is less well justified and should be calibrated against
 the historical bootstrap distribution of non-drought flows. Tolerance
 calibration is now run per experiment via
-`workflows/diagnostics/diag_constraint_calibration.py` and reported in
+`workflows/0N_<stage>/diag_constraint_calibration.py` and reported in
 the Supporting Information for each run; see DD-05 and DD-14 in
 `governance/design_decisions.md`.
 
