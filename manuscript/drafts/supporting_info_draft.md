@@ -39,6 +39,8 @@ subsection that consumes them noted.
 | `06_pywrdrb_reeval/verify_drought_coverage.py`       | SI-10 (Pareto coverage verification — placeholder below) |
 | `07_scenario_discovery/satisficing_sweep.py`         | SI-11 (satisficing manifold + GBT — placeholder below) |
 | `07_scenario_discovery/scenario_discovery_plots.py`  | SI-11 (satisficing manifold + GBT) |
+| `08_nyc_sensitivity/run_sa.py`                       | SI-12 (NYC sensitivity to drought-hazard characteristics — placeholder below) |
+| `08_nyc_sensitivity/compare_methods.py`              | SI-12 (NYC sensitivity to drought-hazard characteristics) |
 
 Each subsection targets approximately 2-3 multi-panel figures (clean,
 multi-panel academic style) plus supporting tables. Subsections SI-9,
@@ -191,6 +193,31 @@ inputs).*
 > Manifest of binary satisficing rules:
 > [`workflows/07_scenario_discovery/satisficing_manifest.yaml`](../../workflows/07_scenario_discovery/satisficing_manifest.yaml).
 > Target 2-3 multi-panel figures.*
+
+---
+
+## SI-12. NYC sensitivity to drought-hazard characteristics
+
+*Cross-referenced from main-text Section 3.3 (paired with SI-11 as the
+sensitivity-analysis counterpart of the scenario-discovery results).*
+
+> *Placeholder. Applies common global sensitivity analysis methods
+> (Delta moment-independent as the manuscript anchor; PAWN density-based
+> and RBD-FAST as comparators) to the structured drought-hazard
+> realization sample produced by MOEA-FIND. Factor space is exactly the
+> set of MOEA-FIND objective axes that drove the upstream archive
+> (read from `results.json::objective_keys`); non-optimized drought
+> characteristics are excluded by design because they have no space-
+> filling guarantee. Outcomes carried through SA: NYC minimum combined
+> storage fraction, NYC drawdown days below 25%, Montague flow
+> reliability, Montague flow vulnerability — main-text outcome chosen
+> post-HPC. Driver:
+> [`workflows/08_nyc_sensitivity/run_sa.py`](../../workflows/08_nyc_sensitivity/run_sa.py).
+> Cross-run comparison driver:
+> [`workflows/08_nyc_sensitivity/compare_methods.py`](../../workflows/08_nyc_sensitivity/compare_methods.py).
+> Target figure budget: 2-3 multi-panel SI figures (method comparison
+> tornadoes, cross-method and cross-outcome rank-correlation matrices,
+> sample-size convergence). Pending HPC production runs.*
 
 ---
 

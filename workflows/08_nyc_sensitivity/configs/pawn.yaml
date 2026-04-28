@@ -1,0 +1,25 @@
+# Stage 08 — PAWN density-based only.
+methods:
+  - pawn
+
+outcomes:
+  - nyc_min_storage_frac
+  - nyc_drawdown_days_below_0.25
+  - montague_flow_reliability
+  - montague_flow_vulnerability
+
+n_bootstrap: 1000
+n_convergence_replicates: 200
+convergence_sizes: [200, 500, 1000]
+seed: 42
+
+cv_drop_threshold: 0.05
+
+log_transform_outcomes:
+  - nyc_drawdown_days_below_0.25
+  - montague_flow_vulnerability
+
+rank_spearman_threshold: 0.8
+cross_method_threshold: 0.7
+
+pawn_S: 10

@@ -1,0 +1,42 @@
+# Stage 08 — production headline run (all three SA methods).
+#
+# Runs Delta moment-independent (manuscript anchor), PAWN, and RBD-FAST
+# on every default outcome. The selection criterion fires per outcome
+# post-run; the post-HPC inspection of `selection_log.json` decides
+# which outcome anchors the main-text figure.
+#
+# Loaded by `run_sa.py --config all_methods.yaml`. Any flag passed
+# explicitly on the command line overrides the value here.
+methods:
+  - delta
+  - pawn
+  - rbd_fast
+
+outcomes:
+  - nyc_min_storage_frac
+  - nyc_drawdown_days_below_0.25
+  - montague_flow_reliability
+  - montague_flow_vulnerability
+
+# Factor set: omitted, so the driver reads the upstream archive's
+# `objective_keys` and uses those as factors. Override here with e.g.
+# `metric_set: primary` for sensitivity-of-method studies.
+
+n_bootstrap: 1000
+n_convergence_replicates: 200
+convergence_sizes: [200, 500, 1000]
+seed: 42
+
+cv_drop_threshold: 0.05
+
+log_transform_outcomes:
+  - nyc_drawdown_days_below_0.25
+  - montague_flow_vulnerability
+
+rank_spearman_threshold: 0.8
+cross_method_threshold: 0.7
+
+delta_num_resamples: 100
+pawn_S: 10
+rbd_fast_M: 10
+rbd_fast_num_resamples: 100

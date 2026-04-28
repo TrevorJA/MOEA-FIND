@@ -12,6 +12,7 @@ dependencies = [
     "scipy",
     "matplotlib",
     "pandas",
+    "SALib>=1.5.2",
 ]
 
 [project.optional-dependencies]
