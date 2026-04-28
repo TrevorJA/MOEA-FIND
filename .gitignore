@@ -33,7 +33,7 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 .claude/
-manuscript/
+manuscript/*
 figures/
 outputs/
 notes/
