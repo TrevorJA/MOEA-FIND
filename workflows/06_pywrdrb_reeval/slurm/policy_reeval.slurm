@@ -2,8 +2,8 @@
 #SBATCH --job-name=06_policy_reeval
 #SBATCH --output=workflows/slurm_logs/%x_%j.out
 #SBATCH --error=workflows/slurm_logs/%x_%j.err
-#SBATCH --nodes=8
-#SBATCH --ntasks-per-node=20
+#SBATCH --nodes=10
+#SBATCH --ntasks-per-node=30
 #SBATCH --exclusive
 #SBATCH --time=04:00:00
 #SBATCH --account=tja73
@@ -23,15 +23,26 @@
 # which uses only local (self), shared-memory (vader), and TCP -- never
 # openib -- and passes a 90-rank multi-node Barrier in ~3 seconds.
 #
-# Parallelism: 8 nodes x 20 ntasks-per-node = 160 ranks for stage 3
-# (simulation). Stages 1 + 4 run serially on rank 0. Within the
-# 10-node x 40-core HPC budget. The lower per-node rank density
-# (20 vs 40) is required to avoid OOM during pywrdrb simulation:
-# each rank loads a Pywr-DRB model + per-realization state and at
-# 40 ranks/node memory pressure exceeds Hopper's ~192 GB/node, even
-# under --exclusive (a 5x40-rank run OOM'd in ~4 min on rank 115;
-# the prior 3x30-rank baseline lasted 3.5 h before OOM). Keeping
-# ~9.5 GB headroom per rank is the safe envelope for production NFE.
+# Parallelism: 10 nodes x 30 ntasks-per-node = 300 ranks for stage 3
+# (simulation). Stages 1 + 4 run serially on rank 0. Full HPC budget.
+#
+# History of configurations tried on Hopper (April 2026):
+#   - 3x30 = 90 ranks (no --exclusive): OOM-killed at 3.5 h (cgroup memory
+#     cap + memory growth in pywrdrb sims).
+#   - 5x40 = 200 ranks --exclusive: OOM in 4 min (40 ranks/node x ~5 GB
+#     per rank exceeded Hopper's ~192 GB/node).
+#   - 8x20 = 160 ranks --exclusive: 100 ranks came up healthy and wrote sims;
+#     ranks 100-159 died silently at MPI startup; MPI Barrier in
+#     pywrdrb_bridge.py:758 hung waiting on the dead 60.
+#
+# Current (10x30 = 300 ranks --exclusive): each node hosts 30 ranks with
+# ~6.4 GB per-rank memory headroom (above the ~5 GB threshold that OOM'd
+# the 5x40 run). 3308 sims / 300 ranks ~= 11 sims per rank = 3 batches of 5,
+# well inside the 4 h walltime.
+#
+# A batch_size=10 attempt at 300 ranks OOM'd in 7 min (rank 29 killed):
+# doubling per-batch sims doubles peak memory and exceeds the per-rank
+# headroom. batch_size=5 is the production cap on this hardware.
 
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup

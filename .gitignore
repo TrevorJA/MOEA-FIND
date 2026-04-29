@@ -46,3 +46,4 @@ manuscript/figures/*.png
 /figures/
 ./*/slurm_logs/
 workflows/slurm/slurm_logs/*
+*/slurm_logs/*
