@@ -1,40 +1,39 @@
-"""Script 12 — Cheap-to-rerun satisficing sweep.
+"""Stage 07 / satisficing_sweep -- cheap-to-rerun manifest sweep.
 
-Reads a pre-computed metric bank (produced by script 09 Stage 4) plus
-the Pareto archive's drought characteristics (from script 04), runs
-every entry in a satisficing manifest through the GBT classifier, and
-writes a summary table plus per-definition boundary PDFs.
+Reads a pre-computed metric bank (produced by stage 06's policy
+re-evaluation) plus the Pareto archive's drought characteristics (from
+stage 04), runs every entry in a satisficing manifest through the GBT
+classifier, and writes a summary table plus per-definition boundary
+PDFs.
 
 Does not re-run Pywr-DRB. To add new satisficing definitions, edit
-``workflows/07_scenario_discovery/satisficing_manifest.yaml`` and re-invoke this
-script against the same metric bank.
+``workflows/07_scenario_discovery/satisficing_manifest.yaml`` and
+re-invoke this script against the same metric bank.
+
+Outputs under ``outputs/07_scenario_discovery/satisficing_sweep/<slug>/``:
+    - <primary_label>/classifiers/...
+    - <primary_label>/figures/boundary_<def>.pdf
+    - [<baseline_label>/...] (if --baseline-bank given)
+    - classifier_summary.csv
+    - figures/manifest_summary.pdf
+
+The default slug mirrors the Pareto archive's variant (the directory
+name of ``--pareto-results``'s parent).
 
 Usage:
     python workflows/07_scenario_discovery/satisficing_sweep.py \\
-        --bank outputs/exp09_drb_policy_reeval/<slug>/results/metric_bank.parquet \\
-        --chars outputs/exp04_kirsch_single_site/<slug>/results.json \\
-        --manifest workflows/07_scenario_discovery/satisficing_manifest.yaml \\
-        --output-dir outputs/exp09_drb_policy_reeval/<slug>/satisficing
-
-    # Side-by-side comparison of two banks (e.g. MOEA-FIND vs library baseline)
-    python workflows/07_scenario_discovery/satisficing_sweep.py \\
-        --bank outputs/exp09_drb_policy_reeval/<moea_slug>/results/metric_bank.parquet \\
-        --chars outputs/exp04_kirsch_single_site/<moea_slug>/results.json \\
-        --baseline-bank outputs/exp09_drb_policy_reeval/<lhs_slug>/results/metric_bank.parquet \\
-        --baseline-chars outputs/exp06_library_subsample/<lhs_slug>/selection.json \\
-        --manifest workflows/07_scenario_discovery/satisficing_manifest.yaml \\
-        --output-dir outputs/exp09_drb_policy_reeval/<moea_slug>/satisficing
+        --pareto-results outputs/04_moea_find_single_site/run_moea_find/<slug>/results.json \\
+        --bank outputs/06_pywrdrb_reeval/policy_reeval/<src_slug>/results/metric_bank.parquet \\
+        --manifest workflows/07_scenario_discovery/satisficing_manifest.yaml
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Tuple
 
-import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -50,6 +49,10 @@ from src.plotting.satisficing_boundary import (  # noqa: E402
 )
 from src.io import load_metric_bank as _read_bank  # noqa: E402
 from src.io import load_pareto_chars as _load_chars  # noqa: E402
+from src.paths import stage_output_dir  # noqa: E402
+
+STAGE = "07_scenario_discovery"
+DRIVER = "satisficing_sweep"
 
 
 def _run_one(
@@ -70,7 +73,6 @@ def _run_one(
     )
     summary.insert(0, "source", source_label)
 
-    # Per-definition boundary figure
     import joblib
     fig_dir = output_dir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
@@ -82,7 +84,6 @@ def _run_one(
         if not model_path.exists():
             continue
         model = joblib.load(model_path)
-        # Reconstruct the X/y used for this definition by re-applying the label
         real_ids = bank.index.astype(str)
         keep_ids = [r for r in real_ids if r in chars.index]
         X = chars.loc[keep_ids, list(feature_cols)].astype(float)
@@ -110,27 +111,42 @@ def _run_one(
                 y_col=feature_cols[1] if len(feature_cols) > 1 else feature_cols[0],
                 agg_col=feature_cols[2] if len(feature_cols) > 2 else None,
                 output_path=fig_dir / f"boundary_{row['definition_id']}.pdf",
-                title=f"{source_label} — {row['definition_id']} (AUC={row['auc_mean']:.3f})",
+                title=f"{source_label} -- {row['definition_id']} (AUC={row['auc_mean']:.3f})",
             )
         except Exception as exc:
-            print(f"[12] boundary plot failed for {row['definition_id']}: {exc}")
+            print(f"[07/satisficing_sweep] boundary plot failed for "
+                  f"{row['definition_id']}: {exc}")
 
     return summary, fig_dir
 
 
+def _resolve_bank(args) -> Path:
+    if args.bank is not None:
+        return args.bank
+    src_slug = args.src_slug or args.pareto_results.parent.name
+    return (PROJECT_ROOT / "outputs" / "06_pywrdrb_reeval" / "policy_reeval"
+            / src_slug / "results" / "metric_bank.parquet")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--bank", type=Path, required=True,
-                   help="Primary metric_bank.parquet (or .csv).")
-    p.add_argument("--chars", type=Path, required=True,
-                   help="Pareto archive results.json (has 'pareto_chars').")
-    p.add_argument("--manifest", type=Path, required=True,
+    p.add_argument("--pareto-results", type=Path, required=True,
+                   help="Path to stage 04's results.json (Pareto archive).")
+    p.add_argument("--bank", type=Path, default=None,
+                   help="Primary metric_bank.parquet. Default: derived from "
+                        "stage 06 outputs using --src-slug or pareto parent.")
+    p.add_argument("--src-slug", type=str, default=None,
+                   help="Override stage 06 source slug (when stage 06 was "
+                        "re-evaluated under a different slug than stage 04).")
+    p.add_argument("--manifest", type=Path,
+                   default=PROJECT_ROOT / "workflows" / "07_scenario_discovery"
+                   / "satisficing_manifest.yaml",
                    help="YAML satisficing manifest.")
-    p.add_argument("--output-dir", type=Path, required=True,
-                   help="Output directory for summary + figures.")
+    p.add_argument("--slug", type=str, default=None,
+                   help="Output slug. Default: pareto archive parent dir name.")
     p.add_argument("--feature-cols", nargs="+",
                    default=("mean_duration", "mean_avg_severity",
-                             "peak_severity_month"),
+                            "peak_severity_month"),
                    help="Drought-characteristic feature columns.")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--baseline-bank", type=Path, default=None,
@@ -142,16 +158,18 @@ def main():
     p.add_argument("--primary-label", default="moea_find")
     args = p.parse_args()
 
+    slug = args.slug or args.pareto_results.parent.name
+    out = stage_output_dir(STAGE, DRIVER, slug)
+
     manifest = load_manifest(args.manifest)
-    print(f"[12] manifest: {len(manifest)} definitions")
+    print(f"[07/satisficing_sweep] manifest: {len(manifest)} definitions")
 
-    primary_bank = _read_bank(args.bank)
-    primary_chars = _load_chars(args.chars, args.feature_cols)
-    print(f"[12] primary bank: {len(primary_bank)} realizations, "
-          f"chars: {len(primary_chars)} records")
-
-    out = args.output_dir
-    out.mkdir(parents=True, exist_ok=True)
+    bank_path = _resolve_bank(args)
+    primary_bank = _read_bank(bank_path)
+    primary_chars = _load_chars(args.pareto_results, args.feature_cols)
+    print(f"[07/satisficing_sweep] bank: {bank_path}")
+    print(f"[07/satisficing_sweep] primary bank: {len(primary_bank)} "
+          f"realizations, chars: {len(primary_chars)} records")
 
     primary_out = out / args.primary_label
     primary_summary, _ = _run_one(
@@ -166,8 +184,8 @@ def main():
             raise SystemExit("--baseline-bank requires --baseline-chars")
         baseline_bank = _read_bank(args.baseline_bank)
         baseline_chars = _load_chars(args.baseline_chars, args.feature_cols)
-        print(f"[12] baseline bank: {len(baseline_bank)} realizations, "
-              f"chars: {len(baseline_chars)} records")
+        print(f"[07/satisficing_sweep] baseline bank: {len(baseline_bank)} "
+              f"realizations, chars: {len(baseline_chars)} records")
 
         baseline_out = out / args.baseline_label
         baseline_summary, _ = _run_one(
@@ -179,17 +197,16 @@ def main():
     summary_all = pd.concat(combined, ignore_index=True)
     summary_path = out / "classifier_summary.csv"
     summary_all.to_csv(summary_path, index=False)
-    print(f"[12] wrote {summary_path}")
+    print(f"[07/satisficing_sweep] wrote {summary_path}")
 
-    # Aggregate AUC bar chart covering all sources
     plot_manifest_summary(
         summary_all.assign(
             definition_id=lambda d: d["source"] + ":" + d["definition_id"]
         ),
         output_path=out / "figures" / "manifest_summary.pdf",
-        title="Satisficing sweep — AUC per (source, definition)",
+        title="Satisficing sweep -- AUC per (source, definition)",
     )
-    print(f"[12] summary head:")
+    print(f"[07/satisficing_sweep] outputs: {out}")
     print(summary_all.to_string(index=False))
 
 

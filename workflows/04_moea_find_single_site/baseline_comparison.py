@@ -1,20 +1,14 @@
-"""Script 11 — Kirsch vs MOEA-FIND baseline comparison (manuscript §6.3, Fig 7).
+"""Stage 04 / baseline_comparison -- Kirsch library vs MOEA-FIND (Fig 7).
 
-Produces the manuscript comparison figure showing:
-  (a) Kirsch random ensemble scatter in drought space
-  (b) MOEA-FIND Pareto front in same space
-  (c) Range convergence curves (ensemble size vs coverage fraction)
+Computes coverage metrics for the stage 03 Kirsch random library against
+the stage 04 MOEA-FIND Pareto front and writes a numerical summary.
+Figures are produced separately by
+``workflows/04_moea_find_single_site/plots/baseline_comparison.py``.
 
-Reads outputs from:
-  - Script 05 (Kirsch library): outputs/exp05_kirsch_library/
-  - Script 04 (MOEA-FIND): outputs/exp04_kirsch_single_site/{variant}/
-  - Convergence diagnostic: outputs/diag_kirsch_convergence/
-
-Usage:
-    python workflows/04_moea_find_single_site/baseline_comparison.py \\
-        --kirsch-library outputs/exp05_kirsch_library/characteristics.npz \\
-        --moea-front outputs/exp04_kirsch_single_site/{variant}/results.json \\
-        --convergence outputs/diag_kirsch_convergence/convergence.json
+Outputs under ``outputs/04_moea_find_single_site/baseline_comparison/``:
+    config.json
+    comparison_summary.json
+    pooled.npz                (kirsch + moea objective points, anti_ideal)
 """
 
 from __future__ import annotations
@@ -30,42 +24,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.analysis import coverage_metrics  # noqa: E402
-from src.experiment_config import DEFAULT_EXPERIMENT  # noqa: E402
-from src.experiment_utils import make_variant_slug  # noqa: E402
+from src.paths import stage_output_dir  # noqa: E402
 
-
-def _default_moea_front() -> Path:
-    """Default --moea-front path, derived from DEFAULT_EXPERIMENT.
-
-    Resolves to ``outputs/exp04_kirsch_single_site/<variant_slug>/results.json``
-    where the slug is built from the centralized config (mode, T, NFE,
-    seed, constrained). CLI ``--moea-front`` overrides this.
-    """
-    cfg = DEFAULT_EXPERIMENT
-    slug = make_variant_slug(
-        mode=cfg.dv_mode,
-        n_years=cfg.n_years_out,
-        nfe=cfg.nfe,
-        seed=cfg.seed,
-        constrained=cfg.constraints_json is not None,
-    )
-    return (PROJECT_ROOT / "outputs" / "exp04_kirsch_single_site"
-            / slug / "results.json")
-
-
-DEFAULT_KIRSCH_LIBRARY = (
-    PROJECT_ROOT / "outputs" / "exp05_kirsch_library" / "characteristics.npz"
-)
-DEFAULT_CONVERGENCE = (
-    PROJECT_ROOT / "outputs" / "diag_kirsch_convergence" / "convergence.json"
-)
+STAGE = "04_moea_find_single_site"
+DRIVER = "baseline_comparison"
 
 
 def load_kirsch(path: Path) -> np.ndarray:
     """Load Kirsch objectives (n, 2)."""
     path = Path(path)
     if path.suffix == ".npz":
-        return np.load(path, allow_pickle=True)["objectives"]
+        data = np.load(path, allow_pickle=True)
+        if "objectives" in data.files:
+            return data["objectives"]
+        # Stage 03 build_library writes (all_keys, all_values); pull the
+        # first two columns as the headline 2D drought-space.
+        return data["all_values"][:, :2]
     chars = json.loads(path.read_text())
     return np.array([[c["mean_duration"], c["mean_avg_severity"]] for c in chars])
 
@@ -81,157 +55,60 @@ def load_moea(path: Path):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    # Defaults come from src/experiment_config.DEFAULT_EXPERIMENT via the
-    # helpers above — override per-run if a specific variant is needed.
     p.add_argument(
-        "--kirsch-library", type=Path, default=DEFAULT_KIRSCH_LIBRARY,
-        help="Path to Kirsch library characteristics "
-             "(default: exp05_kirsch_library/characteristics.npz).",
+        "--kirsch-library", type=Path, required=True,
+        help="Path to stage 03 Kirsch library characteristics.npz.",
     )
     p.add_argument(
-        "--moea-front", type=Path, default=_default_moea_front(),
-        help="Path to exp04 results.json. Default resolves from "
-             "DEFAULT_EXPERIMENT (mode/T/NFE/seed/constrained).",
+        "--moea-front", type=Path, required=True,
+        help="Path to stage 04 run_moea_find results.json for the production slug.",
     )
     p.add_argument(
-        "--convergence", type=Path, default=DEFAULT_CONVERGENCE,
-        help="convergence.json from diag_kirsch_convergence.py "
-             "(default: diag_kirsch_convergence/convergence.json).",
+        "--convergence", type=Path, default=None,
+        help="Optional convergence.json from a stage 03 convergence diagnostic.",
     )
-    p.add_argument("--output-dir", type=Path,
-                   default=PROJECT_ROOT / "outputs" / "exp11_baseline_comparison")
     args = p.parse_args()
 
-    # Early fail with a clear message if upstream inputs are missing.
     for label, path in [("--kirsch-library", args.kirsch_library),
                         ("--moea-front", args.moea_front)]:
         if not path.exists():
             raise SystemExit(
-                f"[11] {label}={path} does not exist. "
-                "Run the upstream experiment or override the CLI arg."
+                f"[04/baseline_comparison] {label}={path} does not exist."
             )
 
-    out = args.output_dir
-    out.mkdir(parents=True, exist_ok=True)
-    fig_dir = out / "figures"
-    fig_dir.mkdir(parents=True, exist_ok=True)
-
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    out = stage_output_dir(STAGE, DRIVER)
+    (out / "config.json").write_text(json.dumps({
+        "stage": STAGE,
+        "driver": DRIVER,
+        "kirsch_library": str(args.kirsch_library),
+        "moea_front": str(args.moea_front),
+        "convergence": str(args.convergence) if args.convergence else None,
+    }, indent=2))
 
     # --- Load data ---
     kirsch = load_kirsch(args.kirsch_library)
     moea, moea_result = load_moea(args.moea_front)
 
-    print(f"[11] Kirsch library: {len(kirsch)} traces")
-    if moea is not None:
-        print(f"[11] MOEA-FIND: {len(moea)} Pareto solutions")
-    else:
-        print(f"[11] MOEA-FIND: no solutions")
+    print(f"[04/baseline_comparison] Kirsch library: {len(kirsch)} traces")
+    if moea is None:
+        print(f"[04/baseline_comparison] MOEA-FIND: no solutions; aborting.")
         return
+    print(f"[04/baseline_comparison] MOEA-FIND: {len(moea)} Pareto solutions")
 
-    # Coverage metrics
+    # Coverage metrics on the union bounding box
     lb = kirsch.min(axis=0)
     ub = kirsch.max(axis=0)
     kirsch_cm = coverage_metrics(kirsch, lb, ub)
     moea_cm = coverage_metrics(moea, lb, ub)
 
-    print(f"[11] Kirsch L2*={kirsch_cm.get('L2_star_discrepancy', 0):.4f}, "
+    print(f"[04/baseline_comparison] Kirsch L2*={kirsch_cm.get('L2_star_discrepancy', 0):.4f}, "
           f"NN_CV={kirsch_cm.get('nn_cv', 0):.3f}")
-    print(f"[11] MOEA   L2*={moea_cm.get('L2_star_discrepancy', 0):.4f}, "
+    print(f"[04/baseline_comparison] MOEA   L2*={moea_cm.get('L2_star_discrepancy', 0):.4f}, "
           f"NN_CV={moea_cm.get('nn_cv', 0):.3f}")
 
-    # --- Figure: scatter comparison ---
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
-
-    # Panel (a): Kirsch
-    ax1.scatter(kirsch[:, 0], kirsch[:, 1], s=3, alpha=0.15, c="gray",
-                label=f"Kirsch ({len(kirsch)} traces)")
-    ax1.set_xlabel("Mean duration (months)")
-    ax1.set_ylabel("Mean avg. severity")
-    ax1.set_title(f"(a) Kirsch random ensemble\n"
-                  f"L2*={kirsch_cm.get('L2_star_discrepancy', 0):.3f}")
-    ax1.legend(fontsize=8, loc="upper right")
-
-    # Panel (b): MOEA-FIND
-    ax2.scatter(moea[:, 0], moea[:, 1], s=15, alpha=0.7, c="#d62728",
-                label=f"MOEA-FIND ({len(moea)} solutions)")
-    # Show Kirsch cloud as background
-    ax2.scatter(kirsch[:, 0], kirsch[:, 1], s=1, alpha=0.05, c="gray", zorder=0)
-    ax2.set_xlabel("Mean duration (months)")
-    ax2.set_title(f"(b) MOEA-FIND Pareto front\n"
-                  f"L2*={moea_cm.get('L2_star_discrepancy', 0):.3f}")
-    ax2.legend(fontsize=8, loc="upper right")
-
-    fig.suptitle("Drought Characteristic Space: Kirsch Random vs MOEA-FIND", fontsize=13)
-    fig.tight_layout()
-    fig.savefig(fig_dir / "fig07_scatter_comparison.pdf", dpi=300)
-    plt.close(fig)
-    print(f"[11] wrote {fig_dir / 'fig07_scatter_comparison.pdf'}")
-
-    # --- Figure: convergence (if data available) ---
-    if args.convergence and args.convergence.exists():
-        conv_data = json.loads(args.convergence.read_text())
-        kirsch_data = [r for r in conv_data if r.get("method") != "moea_find"]
-        moea_data = [r for r in conv_data if r.get("method") == "moea_find"]
-
-        sizes = sorted(set(r["ensemble_size"] for r in kirsch_data))
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-
-        # Panel (c): Range coverage
-        if any("range_coverage" in r for r in kirsch_data):
-            medians, lo, hi = [], [], []
-            for N in sizes:
-                fracs = [r["range_coverage"]["overall_frac"]
-                         for r in kirsch_data if r["ensemble_size"] == N]
-                medians.append(np.median(fracs))
-                lo.append(np.percentile(fracs, 10))
-                hi.append(np.percentile(fracs, 90))
-
-            ax1.plot(sizes, medians, "o-", color="#2b6cb0", label="Kirsch random")
-            ax1.fill_between(sizes, lo, hi, alpha=0.2, color="#2b6cb0",
-                             label="10-90th pct")
-            ax1.axhline(1.0, color="gray", linestyle="--", alpha=0.5)
-            if moea_data:
-                ax1.axvline(moea_data[0]["n_points"], color="#d62728", linestyle=":",
-                            label=f"MOEA-FIND n={moea_data[0]['n_points']}")
-            ax1.set_xscale("log")
-            ax1.set_xlabel("Ensemble size")
-            ax1.set_ylabel("Fraction of MOEA-FIND range covered")
-            ax1.set_title("(c) Range convergence")
-            ax1.legend(fontsize=8)
-            ax1.set_ylim(0, 1.05)
-
-        # Panel (d): L2* comparison
-        l2_medians = []
-        for N in sizes:
-            vals = [r["L2_star"] for r in kirsch_data
-                    if r["ensemble_size"] == N and np.isfinite(r["L2_star"])]
-            l2_medians.append(np.median(vals) if vals else float("nan"))
-
-        ax2.plot(sizes, l2_medians, "o-", color="#2b6cb0", label="Kirsch random")
-        if moea_data:
-            ax2.axhline(moea_data[0]["L2_star"], color="#d62728", linestyle="--",
-                        label=f"MOEA-FIND (n={moea_data[0]['n_points']})")
-        ax2.set_xscale("log")
-        ax2.set_xlabel("Ensemble size")
-        ax2.set_ylabel("L2* discrepancy (lower = better)")
-        ax2.set_title("(d) Coverage uniformity")
-        ax2.legend(fontsize=8)
-
-        fig.suptitle("Convergence: How Many Kirsch Traces to Match MOEA-FIND?",
-                     fontsize=13)
-        fig.tight_layout()
-        fig.savefig(fig_dir / "fig07_convergence.pdf", dpi=300)
-        plt.close(fig)
-        print(f"[11] wrote {fig_dir / 'fig07_convergence.pdf'}")
-
-    # --- Save summary ---
     summary = {
-        "kirsch_n": len(kirsch),
-        "moea_n": len(moea),
+        "kirsch_n": int(len(kirsch)),
+        "moea_n": int(len(moea)),
         "kirsch_L2_star": kirsch_cm.get("L2_star_discrepancy"),
         "moea_L2_star": moea_cm.get("L2_star_discrepancy"),
         "kirsch_nn_cv": kirsch_cm.get("nn_cv"),
@@ -242,7 +119,24 @@ def main():
         "moea_range_severity": [float(moea[:, 1].min()), float(moea[:, 1].max())],
     }
     (out / "comparison_summary.json").write_text(json.dumps(summary, indent=2))
-    print(f"[11] wrote {out / 'comparison_summary.json'}")
+    print(f"[04/baseline_comparison] wrote {out / 'comparison_summary.json'}")
+
+    # Persist the pooled point clouds so the plotting driver does not have
+    # to re-load the full Kirsch library .npz.
+    np.savez(
+        out / "pooled.npz",
+        kirsch=kirsch,
+        moea=moea,
+        anti_ideal=np.asarray(moea_result.get("anti_ideal", []), dtype=float),
+    )
+    print(f"[04/baseline_comparison] wrote {out / 'pooled.npz'}")
+
+    # Optional convergence pass-through: copy the convergence JSON into our
+    # output dir so the plot driver has a deterministic local input path.
+    if args.convergence and args.convergence.exists():
+        conv_data = json.loads(args.convergence.read_text())
+        (out / "convergence.json").write_text(json.dumps(conv_data, indent=2))
+        print(f"[04/baseline_comparison] copied convergence -> {out / 'convergence.json'}")
 
 
 if __name__ == "__main__":

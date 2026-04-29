@@ -1,58 +1,44 @@
 #!/bin/bash
-#SBATCH --job-name=moea_diag_shell_vs_interior
+#SBATCH --job-name=01_dimension_sweep
 #SBATCH --output=workflows/slurm_logs/%x_%A_%a.out
 #SBATCH --error=workflows/slurm_logs/%x_%A_%a.err
 #SBATCH --array=2-6
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
+#SBATCH --ntasks=8
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=4G
-#SBATCH --time=00:15:00
-# Analytic K-dim interior-coverage sanity check for the DD-11 L1 Device.
+#SBATCH --mem=8G
+#SBATCH --time=00:30:00
+# Stage 01 / dimension_sweep -- compute only (MM Borg via MPI).
+# K=2..6 hypercube feasibility. Manuscript: Fig 4.
+# Pair with: workflows/01_analytic_validation/slurm/plots/dimension_sweep.slurm
 #
-# Submits as a SLURM **job array** so the K=2..6 runs execute in
-# parallel (each is ~15 s on 1 CPU). A separate afterok summary job
-# rolls the per-K results.json into the sweep figure once all array
-# tasks complete.
-#
-# Runs workflows/01_analytic_validation/dimension_sweep.py on a K-dim cube
-# feasibility inside the bounding box [-3, 3]^K (override via
-# DIAG_SHAPE=ball). Uses src.objectives.analytic_objectives — the same
-# DD-11 formulation as drought_objectives.
-#
-# Per-K outputs at outputs/diag_shell_vs_interior/k{K}/; figures at
-# figures/figSI_shell_interior_k{K}.pdf; sweep summary at
-# figures/figSI_shell_interior_sweep.pdf.
-#
-# Submit (array + summary together):
-#   ARR_ID=$(sbatch --parsable workflows/01_analytic_validation/slurm/dimension_sweep.slurm)
-#   sbatch --dependency=afterok:${ARR_ID} (removed; redundant with fig04_dimension_sweep)
-#
-# Override NFE / epsilon / shape / seed / K-list from sbatch via env vars:
-#   sbatch --export=ALL,DIAG_NFE=10000,DIAG_EPS=0.20 workflows/01_analytic_validation/slurm/dimension_sweep.slurm
-#   sbatch --export=ALL,DIAG_SHAPE=ball workflows/01_analytic_validation/slurm/dimension_sweep.slurm
-#   sbatch --array=3-5 workflows/01_analytic_validation/slurm/dimension_sweep.slurm
+# Each cell = 8 MPI ranks; borg_runner auto-picks n_islands=2 (1 controller +
+# 2 islands x (1 master + 3 workers)). 5 cells in array, concurrent peak
+# ~40 cores -- fits 1 node within the 400-core budget.
+# (Borg MM with n_islands=1 at 7 workers segfaults on small allocations;
+# borg_runner._auto_islands forces >=2 islands at n>=6.)
 
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
 export OMP_NUM_THREADS=1
 
-: "${DIAG_NFE:=5000}"
-: "${DIAG_EPS:=0.25}"
-: "${DIAG_SHAPE:=cube}"
-: "${DIAG_SEED:=42}"
-
 K="${SLURM_ARRAY_TASK_ID}"
 
-echo "[diag.slurm] K=${K} NFE=${DIAG_NFE} eps=${DIAG_EPS} shape=${DIAG_SHAPE} seed=${DIAG_SEED}"
-echo "[diag.slurm] start: $(date)"
+# Per-K epsilon tuned so all K give comparable archive sizes.
+case "${K}" in
+    2) EPS=0.10 ;;
+    3) EPS=0.15 ;;
+    4) EPS=0.20 ;;
+    5) EPS=0.25 ;;
+    6) EPS=0.30 ;;
+    *) EPS=0.30 ;;
+esac
 
-python workflows/01_analytic_validation/dimension_sweep.py \
+echo "[01/dimension_sweep] K=${K} eps=${EPS} ntasks=${SLURM_NTASKS}"
+moea_mpi_launch "${SLURM_NTASKS}" python workflows/01_analytic_validation/dimension_sweep.py \
     --k "${K}" \
-    --nfe "${DIAG_NFE}" \
-    --epsilon "${DIAG_EPS}" \
-    --feasible-shape "${DIAG_SHAPE}" \
-    --seed "${DIAG_SEED}"
-
-echo "[diag.slurm] end: $(date)"
+    --nfe 5000 \
+    --epsilon "${EPS}" \
+    --feasible-shape cube \
+    --seed 42

@@ -82,6 +82,44 @@ converts calendar→water year. Without this, the seasonal cycle plot is shifted
 - `constraints.py` + `diag_constraint_calibration.py`: SSI alignment bug (`series.loc[ssi.index]`)
 - `pyproject.toml`: invalid build backend
 
+## MM Borg topology and NFE semantics (resolved 2026-04-28)
+
+Two separate findings forced a wrapper redesign while porting the
+analytic stage to MM Borg:
+
+1. **Always run with ``n_islands >= 2``.** With ``n_islands == 1``
+   (master-slave mode under the multi-master library), Borg
+   intermittently SIGSEGVs on a worker rank during MPI startup once
+   the worker count exceeds ~6. Reproducible across multiple seeds and
+   compute nodes. The fix is in
+   :func:`src.borg_runner._auto_islands` -- it returns
+   ``max(2, n_ranks // 16)`` for any allocation of >= 5 ranks.
+   Drivers should pass ``n_islands=None`` to opt into the heuristic;
+   the production stage 04 slurm overrides with ``--n-islands 4`` per
+   the Hadka & Reed 2015 production-scale ratio.
+
+2. **``solveMPI(maxEvaluations=...)`` is per-island, not total.** Per
+   the Water Programming Python-wrapper tutorial, ``maxEvaluations``
+   is the budget delivered to each island master, so the total NFE
+   across the run is ``islands * maxEvaluations``. Our wrapper now
+   takes the caller's ``nfe`` as the total budget and divides by
+   ``n_islands`` before passing to ``solveMPI`` so the call site has
+   the obvious meaning. The legacy code was silently giving the
+   stage-04 production runs ``4x`` the requested NFE.
+
+## Concurrent-mpirun stress (open issue)
+
+Empirically, when many SLURM array tasks each launch their own
+``mpirun -np 8`` on the same node concurrently (e.g., 36 cells x 8
+ranks = 288 OpenMPI processes hitting one node simultaneously), Borg
+MM segfaults with elevated frequency: ~13/36 cells in a single
+unthrottled batch on Hopper, with failures clustered on whichever
+nodes ended up host to the most simultaneous mpiruns. Mitigation:
+throttle the SLURM array via ``#SBATCH --array=0-N%M`` so concurrent
+mpirun count stays bounded (e.g., ``%8`` keeps it to 8 cells x 8
+ranks = 64 ranks per dispatch). The throttling is documented in the
+stage 01 slurm files.
+
 ## Variant Slug System
 
 Output directories are keyed by a deterministic slug encoding all experiment

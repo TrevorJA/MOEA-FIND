@@ -1,4 +1,4 @@
-"""Stage 08 — compare SA across runs.
+"""Stage 08 — compare SA across runs (plotting-only driver).
 
 Reads multiple ``run_sa.py`` output directories (different upstream
 MOEA-FIND archives, different metric sets, or different SA-method
@@ -10,16 +10,19 @@ Use cases:
 - Robustness-of-SA: did indices stabilize at the production sample size
   vs a smaller pilot run on the same upstream archive?
 
-The script does not re-run SA — every upstream directory must already
+This driver does not re-run SA — every upstream directory must already
 contain ``results/indices_<method>.parquet``.
 
+Inputs default to slugs under
+``outputs/08_nyc_sensitivity/run_sa/<slug>/``; figures are written to
+``figures/08_nyc_sensitivity/compare_methods/<comparison_tag>/``.
+
 Usage:
-    python workflows/08_nyc_sensitivity/compare_methods.py \\
-        --runs outputs/exp10_nyc_sensitivity/<slug_a> \\
-                outputs/exp10_nyc_sensitivity/<slug_b> \\
+    python workflows/08_nyc_sensitivity/plots/compare_methods.py \\
+        --slugs <slug_a> <slug_b> \\
         --labels primary extreme_event \\
         --method delta \\
-        --output-dir figures/nyc_sensitivity/comparisons
+        --tag primary_vs_extreme
 """
 
 from __future__ import annotations
@@ -27,16 +30,21 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Sequence
 
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.paths import stage_figure_dir, stage_output_dir  # noqa: E402
 from src.plotting.style import apply_style  # noqa: E402
 from src.sensitivity import HEADLINE_INDEX  # noqa: E402
+
+STAGE = "08_nyc_sensitivity"
+SOURCE_DRIVER = "run_sa"
+DRIVER = "compare_methods"
 
 
 def _load_indices(run_dir: Path, method: str) -> pd.DataFrame:
@@ -130,7 +138,7 @@ def _plot_run_rank_correlation(
     method: str,
     output_path: Path,
 ) -> None:
-    """Run × run Spearman correlation of factor rankings on one outcome."""
+    """Run x run Spearman correlation of factor rankings on one outcome."""
     from scipy.stats import spearmanr
 
     from src.plotting.sensitivity import plot_rank_correlation
@@ -166,49 +174,55 @@ def _plot_run_rank_correlation(
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--runs", nargs="+", type=Path, required=True,
-                   help="Stage-08 output directories to compare.")
+    p.add_argument("--slugs", nargs="+", required=True,
+                   help="Stage-08 run_sa slugs (subdirs of "
+                        "outputs/08_nyc_sensitivity/run_sa/) to compare.")
     p.add_argument("--labels", nargs="+", default=None,
-                   help="Display labels for each run (default: directory name).")
+                   help="Display labels for each slug (default: slug name).")
     p.add_argument("--method", default="delta",
                    choices=sorted(HEADLINE_INDEX.keys()),
                    help="SA method to compare across runs.")
     p.add_argument("--outcomes", nargs="+", default=None,
                    help="Outcomes to compare. Defaults to the intersection "
                         "of outcomes present in every run.")
-    p.add_argument("--output-dir", type=Path,
-                   default=PROJECT_ROOT / "figures" / "nyc_sensitivity" / "comparisons")
+    p.add_argument("--tag", default="default",
+                   help="Comparison tag used as the figure subdirectory.")
     args = p.parse_args()
 
+    run_dirs = [
+        stage_output_dir(STAGE, SOURCE_DRIVER, slug, create=False)
+        for slug in args.slugs
+    ]
+
     if args.labels is None:
-        labels = [r.name for r in args.runs]
+        labels = list(args.slugs)
     else:
-        if len(args.labels) != len(args.runs):
-            raise SystemExit("--labels must have the same length as --runs")
+        if len(args.labels) != len(args.slugs):
+            raise SystemExit("--labels must have the same length as --slugs")
         labels = list(args.labels)
 
-    print(f"[compare] loading {len(args.runs)} runs for method={args.method}")
+    print(f"[compare] loading {len(run_dirs)} runs for method={args.method}")
     run_indices: Dict[str, pd.DataFrame] = {}
-    for label, run_dir in zip(labels, args.runs):
-        run_indices[label] = _load_indices(Path(run_dir), args.method)
+    for label, run_dir in zip(labels, run_dirs):
+        run_indices[label] = _load_indices(run_dir, args.method)
         print(f"[compare]   {label}: {len(run_indices[label])} rows from {run_dir}")
 
     outcomes = args.outcomes or _common_outcomes(list(run_indices.values()))
     print(f"[compare] comparing on outcomes: {outcomes}")
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = stage_figure_dir(STAGE, DRIVER, args.tag)
     for outcome in outcomes:
         _plot_side_by_side_tornado(
             run_indices=run_indices, outcome=outcome, method=args.method,
-            output_path=args.output_dir / f"compare_tornado_{args.method}_{outcome}.pdf",
+            output_path=out_dir / f"compare_tornado_{args.method}_{outcome}.pdf",
         )
         if len(run_indices) >= 2:
             _plot_run_rank_correlation(
                 run_indices=run_indices, outcome=outcome, method=args.method,
-                output_path=args.output_dir / f"compare_rho_{args.method}_{outcome}.pdf",
+                output_path=out_dir / f"compare_rho_{args.method}_{outcome}.pdf",
             )
 
-    print(f"[compare] wrote figures to {args.output_dir}")
+    print(f"[compare] wrote figures to {out_dir}")
 
 
 if __name__ == "__main__":

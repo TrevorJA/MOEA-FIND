@@ -1,54 +1,88 @@
-# Stage 04 — Single-site MOEA-FIND
+# Stage 04 -- Single-site MOEA-FIND
 
 ## Purpose
 
-The core single-site MOEA-FIND method, plus three SI experiments
-(event-level Kirsch, wrapper-mode ablation, DV-uniformity ablation) and
-the library-vs-MOEA baseline comparison. Backs §6.1, §6.2, §6.4 of the
-main text and SI subsections F-H.
-
-## Run order
-
-Must run **after** stage 02 (constraint calibration JSONs) and stage 03
-(library is required for `baseline_comparison.py`). Outputs feed into
-stage 05 (multi-site builds on the single-site machinery), stage 06
-(Pywr-DRB re-evaluation consumes Pareto droughts), and stage 99
-(manuscript figures aggregate the variant directories).
+Production single-site Cannonsville MOEA-FIND plus the three SI
+ablations (wrapper-mode, DV-uniformity, event-level), the post-hoc
+library-vs-MOEA baseline comparison, and the post-hoc compare drivers.
+Backs the manuscript main results plus SI-F, SI-G, SI-H.
 
 ## Drivers
 
-| Driver | SLURM | YAML config | Outputs | Working figures | Section |
-|---|---|---|---|---|---|
-| [run_moea_find.py](run_moea_find.py)                       | [slurm/run_moea_find.slurm](slurm/run_moea_find.slurm)                       | [configs/primary.yaml](configs/primary.yaml)                  | `outputs/exp04_kirsch_single_site/<slug>/`   | `outputs/exp04_*/<slug>/figures/` | §6.1-6.2 main |
-| [event_level.py](event_level.py)                           | [slurm/event_level.slurm](slurm/event_level.slurm)                           | (uses CLI flags only)                                          | `outputs/exp07_event_level_kirsch/<slug>/`   | `outputs/exp07_*/<slug>/figures/` | §6.4, §SI-H |
-| [baseline_comparison.py](baseline_comparison.py)           | [slurm/baseline_comparison.slurm](slurm/baseline_comparison.slurm)           | (consumes stage 03 output)                                     | `outputs/exp11_baseline_comparison/`          | `figures/moea_single_site/`        | §6.3 (Fig 7) |
-| [wrapper_mode_ablation.py](wrapper_mode_ablation.py)       | [slurm/wrapper_mode_ablation.slurm](slurm/wrapper_mode_ablation.slurm)       | [configs/wrapper_index.yaml](configs/wrapper_index.yaml), [wrapper_residual.yaml](configs/wrapper_residual.yaml) | `outputs/exp15_wrapper_mode_ablation/<slug>/` | `outputs/exp15_*/<slug>/figures/` | §SI-F |
-| [wrapper_mode_compare.py](wrapper_mode_compare.py)         | [slurm/wrapper_mode_compare.slurm](slurm/wrapper_mode_compare.slurm)         | (consumes ablation outputs)                                    | `outputs/exp16_wrapper_mode_compare/`         | `figures/moea_single_site/`        | §SI-F |
-| [dv_uniformity_ablation.py](dv_uniformity_ablation.py)     | [slurm/dv_uniformity_ablation.slurm](slurm/dv_uniformity_ablation.slurm)     | [configs/dv_uniformity.yaml](configs/dv_uniformity.yaml)       | `outputs/exp13_dv_uniformity_ablation/<slug>/` | `outputs/exp13_*/<slug>/figures/` | §SI-G |
-| [dv_uniformity_compare.py](dv_uniformity_compare.py)       | [slurm/dv_uniformity_compare.slurm](slurm/dv_uniformity_compare.slurm)       | (consumes ablation outputs)                                    | `outputs/exp14_dv_uniformity_compare/`        | `figures/moea_single_site/`        | §SI-G |
+| Driver | Purpose | Manuscript |
+|---|---|---|
+| [run_moea_find.py](run_moea_find.py)               | Production single-site MOEA-FIND with MM Borg, residual wrapper, DV-uniformity (AD) constraint. | Figs 5, 6 |
+| [baseline_comparison.py](baseline_comparison.py)   | Stage 03 Kirsch library vs stage 04 Pareto coverage. | Fig 7 |
+| [dv_uniformity_ablation.py](dv_uniformity_ablation.py) | Hydrologic vs DV-uniformity constraint regimes (per-arm Pareto). | SI-G |
+| [wrapper_mode_ablation.py](wrapper_mode_ablation.py)   | Index vs residual wrapper-mode (per-mode Pareto). | SI-F |
+| [event_level.py](event_level.py)                       | Short-trace event-level Kirsch (scaffold; --dry-run today). | SI-H |
 
-`run_moea_find.py` accepts `--config <path>` to load a YAML preset; CLI
-flags still override. The four presets in [configs/](configs/) cover
-the primary arm and the two ablation arms.
+## Compute / plot split
 
-## Manuscript figures
+Compute drivers write only numerical artifacts under
+`outputs/04_moea_find_single_site/<driver>/[<arm-or-mode>/]<slug>/`.
+Figures are produced by paired plotting drivers under [plots/](plots/):
 
-- Main: Fig 5 (Kirsch Pareto), Fig 6 (plausibility panels), Fig 7
-  (library vs MOEA-FIND coverage from `baseline_comparison.py`).
-- SI: §SI-F (wrapper-mode ablation), §SI-G (DV-uniformity ablation),
-  §SI-H (event-level Kirsch).
+| Plot driver | Reads | Writes |
+|---|---|---|
+| `plots/run_moea_find.py`         | run_moea_find/<slug>/results.json + historical_block_chars.npz | figures/.../run_moea_find/<slug>/ |
+| `plots/baseline_comparison.py`   | baseline_comparison/{pooled.npz, comparison_summary.json}      | figures/.../baseline_comparison/  |
+| `plots/dv_uniformity_ablation.py`| dv_uniformity_ablation/<arm>/<slug>/results.json               | figures/.../dv_uniformity_ablation/<arm>/<slug>/ |
+| `plots/dv_uniformity_compare.py` | every dv_uniformity_ablation/<arm>/<slug>/results.json (SI-G)  | figures/.../dv_uniformity_compare/ |
+| `plots/wrapper_mode_ablation.py` | wrapper_mode_ablation/<mode>/<slug>/results.json               | figures/.../wrapper_mode_ablation/<mode>/<slug>/ |
+| `plots/wrapper_mode_compare.py`  | every wrapper_mode_ablation/<mode>/<slug>/results.json (SI-F)  | figures/.../wrapper_mode_compare/  |
 
-Each driver writes per-variant working figures inside its own variant
-output directory (e.g. `outputs/exp04_*/<slug>/figures/`). The
-`compare_*` and `baseline_comparison` drivers write working figures into
-`figures/moea_single_site/`. Final manuscript assets are regenerated by
-`99_manuscript_figures/make_figures.py`.
+## Slurm
 
-## SI figure budget
+| Compute slurm | Cores | Plot slurm |
+|---|---|---|
+| `slurm/run_moea_find.slurm`             | 120 (3x40 MPI) | `slurm/plots/run_moea_find.slurm` |
+| `slurm/baseline_comparison.slurm`       | 1   | `slurm/plots/baseline_comparison.slurm` |
+| `slurm/dv_uniformity_ablation.slurm`    | 6 tasks x 120 cores, throttle %3 (max 360) | `slurm/plots/dv_uniformity_compare.slurm` |
+| `slurm/wrapper_mode_ablation.slurm`     | 4 tasks x 120 cores, throttle %3 (max 360) | `slurm/plots/wrapper_mode_compare.slurm` |
+| `slurm/event_level.slurm`               | 32  | -- |
 
-- §SI-F (wrapper-mode ablation): 2-3 multi-panel figures comparing
-  index vs residual on the same metric set.
-- §SI-G (DV-uniformity ablation): 2-3 multi-panel figures comparing
-  hydrologic vs DV-space constraint regimes.
-- §SI-H (event-level Kirsch): 2-3 multi-panel figures for the
-  event-level objective formulation (Fig 5 inset in main + supporting SI).
+All slurms are self-contained: arguments are baked in. Variant changes
+are made by editing the slurm or adding a sibling slurm, not by env-var
+overrides.
+
+## Run order
+
+1. Stage 02 calibrations must complete first (constraint + DV-uniformity
+   for both residual and index modes).
+2. Stage 03 `build_library` must complete before `baseline_comparison`.
+3. Submit `run_moea_find` for the production main-text result.
+4. Optional: submit ablation arrays + their compare plotting jobs.
+
+## Configs
+
+YAML presets under [configs/](configs/) capture canonical argument
+bundles (primary, dv_uniformity, wrapper_index, wrapper_residual). The
+slurms bake the same argument values directly so the configs are
+documentation, not runtime dependencies.
+
+## Outputs
+
+```
+outputs/04_moea_find_single_site/
+  run_moea_find/<slug>/{config.json, results.json, pareto.npz,
+                        historical_block_chars.npz, historical_blocks.npz}
+  baseline_comparison/{config.json, comparison_summary.json, pooled.npz}
+  dv_uniformity_ablation/<arm>/<slug>/{config.json, results.json, pareto.npz}
+  dv_uniformity_compare/{comparison_summary.json}
+  wrapper_mode_ablation/<mode>/<slug>/{config.json, results.json, pareto.npz}
+  wrapper_mode_compare/{wrapper_comparison_summary.json}
+  event_level/<slug>/{config.json}
+```
+
+## Figures
+
+```
+figures/04_moea_find_single_site/
+  run_moea_find/<slug>/{fig05_drought_space_2d.pdf, fig06_drought_space_3d.pdf}
+  baseline_comparison/{fig07_library_vs_moea.pdf, fig07_coverage_bars.pdf}
+  dv_uniformity_ablation/<arm>/<slug>/drought_space.pdf
+  dv_uniformity_compare/{figSI_ablation_*.pdf}
+  wrapper_mode_ablation/<mode>/<slug>/drought_space.pdf
+  wrapper_mode_compare/{figSI_wrapper_*.pdf}
+```

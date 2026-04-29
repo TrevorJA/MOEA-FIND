@@ -1,20 +1,30 @@
-"""Stage A verification diagnostic — pass/fail report for MOEA-FIND archive.
+"""Stage 06 / verify_drought_coverage -- pre-flight Pareto verification.
 
 Implements Criteria 1-5 from docs/moea_find_verification_criteria.md against
-a completed MOEA-FIND archive (results.json produced by script 04 or 08).
-Produces verification_report.json and five figures under the archive's
-figures/ directory.
+a completed MOEA-FIND archive (results.json produced by stage 04). Produces a
+single ``verification_report.json`` plus the auxiliary numeric arrays needed
+by the paired plotting driver under
+``workflows/06_pywrdrb_reeval/plots/verify_drought_coverage.py``.
 
-Subsets (per 2026-04-17 session notes in the verification criteria doc):
+This driver writes only numerical artifacts -- no matplotlib calls.
+
+Subsets:
     drought_subset = union of (D_j >= historical median) across K objectives
     nominal_subset = strict intersection complement (all D_j < historical median)
 
 Each criterion reports ``pass`` / ``fail`` / ``insufficient_data`` plus the
 underlying numeric diagnostics so the report can be diffed across runs.
 
+Outputs under ``outputs/06_pywrdrb_reeval/verify_drought_coverage/<src_slug>/``:
+    - config.json
+    - verification_report.json
+    - subsets.npz             (drought_mask, nominal_mask, hist_medians)
+    - annual_means.npz        (A_syn, A_hist for the spread plot)
+    - hist_block_chars.npz    (cached for downstream reuse)
+
 Usage:
     python workflows/06_pywrdrb_reeval/verify_drought_coverage.py \\
-        outputs/exp04_kirsch_single_site/<variant>/results.json
+        --pareto-results outputs/04_moea_find_single_site/run_moea_find/<slug>/results.json
 """
 
 from __future__ import annotations
@@ -24,7 +34,7 @@ import json
 import sys
 import warnings
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Sequence
 
 import numpy as np
 import pandas as pd
@@ -44,6 +54,10 @@ from src.objectives import (  # noqa: E402
     get_drought_metrics,
 )
 from src.constraints import _annual_totals, _lag1_ac  # noqa: E402
+from src.paths import stage_output_dir  # noqa: E402
+
+STAGE = "06_pywrdrb_reeval"
+DRIVER = "verify_drought_coverage"
 
 EXCEEDANCE_LOW = (0.70, 0.80, 0.90, 0.95, 0.99)
 EXCEEDANCE_HIGH = (0.01, 0.05, 0.10, 0.20, 0.30)
@@ -73,12 +87,7 @@ def _percentile_safe(arr: np.ndarray, q: float) -> float:
 
 
 def _bbox_overlap_ratio(syn: np.ndarray, hist: np.ndarray) -> float:
-    """Volume of (syn_bbox ∩ hist_bbox) / volume of hist_bbox.
-
-    ``syn`` / ``hist`` are ``(n_points, K)`` arrays. Non-cyclic only —
-    cyclic axes (peak_severity_month) use wrapped overlap handled by
-    the caller.
-    """
+    """Volume of (syn_bbox intersect hist_bbox) / volume of hist_bbox."""
     lo = np.maximum(syn.min(axis=0), hist.min(axis=0))
     hi = np.minimum(syn.max(axis=0), hist.max(axis=0))
     inter = np.clip(hi - lo, 0.0, None)
@@ -214,7 +223,7 @@ def criterion_3_nominal_fidelity(
             "message": "fewer than 100 nominal_subset traces; ramp NFE",
         }
 
-    # ---- High-flow FDC envelope containment (≥90% of traces inside band) ----
+    # ---- High-flow FDC envelope containment (>= 90% of traces inside band) ----
     syn_fdc = np.array([
         _fdc_at_exceedance(t, EXCEEDANCE_HIGH) for t in nominal_traces_1d
     ])
@@ -282,8 +291,13 @@ def criterion_4_flow_space_spread(
     hist_block_chars: np.ndarray,
     drought_mask: np.ndarray,
     nominal_mask: np.ndarray,
-) -> Dict:
-    """Flow-space spread + corner bifurcation (Criterion 4)."""
+):
+    """Flow-space spread + corner bifurcation (Criterion 4).
+
+    Returns ``(report_dict, A_syn, A_hist)`` so the plotting driver can
+    re-render the spread histogram from cached arrays without re-running
+    ``_annual_totals``.
+    """
     A_syn = np.array([_annual_totals(t).mean() for t in pareto_traces_1d])
     A_hist = np.array([_annual_totals(b).mean() for b in hist_blocks_1d])
 
@@ -292,9 +306,6 @@ def criterion_4_flow_space_spread(
     spread_ratio = std_syn / std_hist if std_hist > 0 else float("nan")
     spread_pass = bool(0.9 <= spread_ratio <= 1.1)
 
-    # Corner bifurcation — use the *mean_duration* axis (first objective) as
-    # the canonical drought-strength dimension. Nominal corner (wet, low D)
-    # should be wetter than historical median; drought corner (high D) drier.
     hist_med_annual = float(np.median(A_hist))
     corner_diag = {
         "hist_median_annual_mean": hist_med_annual,
@@ -315,7 +326,7 @@ def criterion_4_flow_space_spread(
     overall_pass = spread_pass and (
         corner_diag["bifurcation_pass"] in (True, None)
     )
-    return {
+    report = {
         "criterion": 4,
         "name": "flow_space_spread",
         "status": "pass" if overall_pass else "fail",
@@ -326,6 +337,7 @@ def criterion_4_flow_space_spread(
         "spread_tolerance": [0.9, 1.1],
         "corner_bifurcation": corner_diag,
     }
+    return report, A_syn, A_hist
 
 
 def criterion_5_drought_onset(
@@ -391,263 +403,26 @@ def criterion_5_drought_onset(
 
 
 # ---------------------------------------------------------------------------
-# Figures
-# ---------------------------------------------------------------------------
-
-
-def _save_fig(fig, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=200, bbox_inches="tight")
-    import matplotlib.pyplot as plt
-    plt.close(fig)
-    print(f"[verify] wrote {path}")
-
-
-def plot_c1_coverage(
-    pareto_drought_metrics: np.ndarray,
-    hist_block_chars: np.ndarray,
-    objective_keys: Sequence[str],
-    anti_ideal: np.ndarray,
-    output_path: Path,
-) -> None:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    K = pareto_drought_metrics.shape[1]
-    n_panels = K * (K - 1) // 2 if K >= 2 else 1
-    fig, axes = plt.subplots(1, n_panels, figsize=(5 * n_panels, 4.5), squeeze=False)
-    axes = axes.flatten()
-
-    p = 0
-    for i in range(K):
-        for j in range(i + 1, K):
-            ax = axes[p]
-            ax.scatter(hist_block_chars[:, i], hist_block_chars[:, j],
-                       s=40, c="#1f77b4", alpha=0.6, label="Historical blocks")
-            ax.scatter(pareto_drought_metrics[:, i], pareto_drought_metrics[:, j],
-                       s=8, c="#ff7f0e", alpha=0.5, label="Pareto archive")
-            ax.scatter([anti_ideal[i]], [anti_ideal[j]],
-                       marker="X", s=180, c="red", zorder=5, label="D*")
-            ax.set_xlabel(objective_keys[i])
-            ax.set_ylabel(objective_keys[j])
-            ax.legend(fontsize=8, loc="best")
-            p += 1
-    fig.suptitle("Criterion 1 — Drought-space coverage", fontsize=12)
-    fig.tight_layout()
-    _save_fig(fig, output_path)
-
-
-def plot_c2_low_flow(
-    report: Dict,
-    output_path: Path,
-) -> None:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    if report.get("status") == "insufficient_data":
-        ax.text(0.5, 0.5, f"insufficient_data\nn_drought_subset={report.get('n_drought_subset', 0)}",
-                ha="center", va="center", transform=ax.transAxes)
-        _save_fig(fig, output_path)
-        return
-
-    xs = [r["exceedance"] * 100 for r in report["per_exceedance"]]
-    syn_p50 = [r["syn_p50"] for r in report["per_exceedance"]]
-    hist_p50 = [r["hist_p50"] for r in report["per_exceedance"]]
-    syn_p10 = [r["syn_p10"] for r in report["per_exceedance"]]
-    hist_p10 = [r["hist_p10"] for r in report["per_exceedance"]]
-
-    ax.plot(xs, hist_p50, "-o", color="#1f77b4", label="Historical p50")
-    ax.plot(xs, hist_p10, "--", color="#1f77b4", label="Historical p10")
-    ax.plot(xs, syn_p50, "-o", color="#ff7f0e", label="Drought-subset p50")
-    ax.plot(xs, syn_p10, "--", color="#ff7f0e", label="Drought-subset p10")
-
-    # Shade fail slots
-    for r in report["per_exceedance"]:
-        if not r["pass"]:
-            ax.axvspan(r["exceedance"] * 100 - 1, r["exceedance"] * 100 + 1,
-                       alpha=0.12, color="red")
-
-    ax.set_yscale("log")
-    ax.set_xlabel("Exceedance (%)")
-    ax.set_ylabel("Flow (cfs)")
-    ax.set_title(f"Criterion 2 — Low-flow directionality ({report['status']})")
-    ax.legend(fontsize=9)
-    fig.tight_layout()
-    _save_fig(fig, output_path)
-
-
-def plot_c3_nominal(
-    report: Dict,
-    output_path: Path,
-) -> None:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
-    status = report.get("status", "?")
-
-    if status == "insufficient_data":
-        for ax in axes:
-            ax.text(0.5, 0.5, f"insufficient_data\nn={report.get('n_nominal_subset', 0)}",
-                    ha="center", va="center", transform=ax.transAxes)
-        fig.suptitle(f"Criterion 3 — Nominal-subset fidelity ({status})")
-        fig.tight_layout()
-        _save_fig(fig, output_path)
-        return
-
-    # FDC panel
-    fdc = report["fdc_high_flow"]
-    axes[0].bar([str(e) for e in fdc["exceedances"]],
-                fdc["pct_inside_per_exceedance"], color="#2ca02c")
-    axes[0].axhline(90, color="red", linestyle="--", label="90% target")
-    axes[0].set_ylabel("% of nominal traces inside envelope")
-    axes[0].set_title(f"High-flow FDC containment ({'pass' if fdc['pass'] else 'fail'})")
-    axes[0].legend()
-
-    # Lag-1 AC
-    ac = report["lag1_ac"]
-    axes[1].barh(["Synthetic", "Historical"],
-                 [ac["syn_5_95"][1] - ac["syn_5_95"][0],
-                  ac["hist_5_95"][1] - ac["hist_5_95"][0]],
-                 left=[ac["syn_5_95"][0], ac["hist_5_95"][0]],
-                 color=["#ff7f0e", "#1f77b4"], alpha=0.7)
-    axes[1].set_xlabel("lag-1 AC")
-    axes[1].set_title(f"Lag-1 AC 5-95 interval ({'pass' if ac['intervals_overlap'] else 'fail'})")
-
-    # Seasonal cycle containment
-    sc = report["seasonal_cycle"]
-    axes[2].bar(["Monthly mean", "Monthly std"],
-                [sc["min_month_pct_inside_mean"], sc["min_month_pct_inside_std"]],
-                color=["#2ca02c", "#2ca02c"])
-    axes[2].axhline(90, color="red", linestyle="--", label="90% target")
-    axes[2].set_ylabel("Worst-month % inside envelope")
-    axes[2].set_title(f"Seasonal cycle ({'pass' if sc['pass'] else 'fail'})")
-    axes[2].legend()
-
-    fig.suptitle(f"Criterion 3 — Nominal-subset fidelity ({status})")
-    fig.tight_layout()
-    _save_fig(fig, output_path)
-
-
-def plot_c4_spread(
-    A_syn: np.ndarray,
-    A_hist: np.ndarray,
-    drought_metrics: np.ndarray,
-    drought_mask: np.ndarray,
-    nominal_mask: np.ndarray,
-    report: Dict,
-    output_path: Path,
-) -> None:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    bins = 30
-
-    axes[0].hist(A_hist, bins=bins, alpha=0.5, color="#1f77b4",
-                 label=f"Historical blocks (std={report['std_hist']:.0f})")
-    axes[0].hist(A_syn, bins=bins, alpha=0.5, color="#ff7f0e",
-                 label=f"Pareto archive (std={report['std_syn']:.0f})")
-    axes[0].set_xlabel("Annual mean flow (cfs-month)")
-    axes[0].set_ylabel("Count")
-    spread_pass_str = "pass" if report["spread_pass"] else "fail"
-    axes[0].set_title(
-        f"Spread ratio = {report['spread_ratio']:.2f} [0.9, 1.1] — {spread_pass_str}"
-    )
-    axes[0].legend()
-
-    # Scatter annual mean vs mean_duration with corners highlighted
-    axes[1].scatter(drought_metrics[:, 0], A_syn,
-                    s=6, c="#888888", alpha=0.3, label="All Pareto")
-    if nominal_mask.any():
-        axes[1].scatter(drought_metrics[nominal_mask, 0], A_syn[nominal_mask],
-                        s=12, c="#2ca02c", alpha=0.6,
-                        label=f"Nominal corner (n={int(nominal_mask.sum())})")
-    if drought_mask.any():
-        axes[1].scatter(drought_metrics[drought_mask, 0], A_syn[drought_mask],
-                        s=12, c="#d62728", alpha=0.5,
-                        label=f"Drought corner (n={int(drought_mask.sum())})")
-    hist_med = report["corner_bifurcation"]["hist_median_annual_mean"]
-    axes[1].axhline(hist_med, color="black", linestyle="--",
-                    label=f"Historical median = {hist_med:.0f}")
-    axes[1].set_xlabel("mean_duration")
-    axes[1].set_ylabel("Annual mean flow")
-    axes[1].set_title("Corner bifurcation")
-    axes[1].legend(fontsize=8)
-
-    fig.suptitle(f"Criterion 4 — Flow-space spread ({report['status']})")
-    fig.tight_layout()
-    _save_fig(fig, output_path)
-
-
-def plot_c5_onset(report: Dict, output_path: Path) -> None:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots(figsize=(9, 5))
-    if report.get("status") == "insufficient_data":
-        ax.text(0.5, 0.5, "insufficient_data",
-                ha="center", va="center", transform=ax.transAxes)
-        _save_fig(fig, output_path)
-        return
-
-    months = np.arange(1, 13)
-    syn = np.array(report["synthetic_histogram"], dtype=float)
-    hist = np.array(report["historical_histogram"], dtype=float)
-    # Normalize
-    syn_n = syn / max(syn.sum(), 1.0)
-    hist_n = hist / max(hist.sum(), 1.0)
-
-    width = 0.4
-    ax.bar(months - width / 2, hist_n, width, color="#1f77b4",
-           label=f"Historical (n={int(hist.sum())})")
-    ax.bar(months + width / 2, syn_n, width, color="#ff7f0e",
-           label=f"Synthetic (n={int(syn.sum())})")
-
-    ax.set_xticks(months)
-    ax.set_xlabel("Calendar month")
-    ax.set_ylabel("Fraction of drought events")
-    ax.set_title(
-        f"Criterion 5 — Drought onset seasonality "
-        f"(χ²={report['chi2_statistic']:.1f}, p={report['p_value']:.3f} → {report['status']})"
-    )
-    ax.legend()
-    fig.tight_layout()
-    _save_fig(fig, output_path)
-
-
-# ---------------------------------------------------------------------------
 # Main driver
 # ---------------------------------------------------------------------------
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("results_json", type=Path,
-                    help="Path to results.json from a MOEA-FIND run.")
-    ap.add_argument("--output-dir", type=Path, default=None,
-                    help="Directory for verification_report.json and figures/. "
-                         "Defaults to the results.json parent directory.")
+    ap.add_argument("--pareto-results", type=Path, required=True,
+                    help="Path to results.json from a MOEA-FIND stage 04 run.")
     ap.add_argument("--min-subset-size", type=int, default=100,
                     help="Minimum traces per subset for Criteria 2, 3, 5 "
                          "(default: 100).")
     args = ap.parse_args()
 
-    if not args.results_json.exists():
-        raise FileNotFoundError(args.results_json)
-    variant_dir = args.results_json.parent
-    output_dir = args.output_dir or variant_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-    fig_dir = output_dir / "figures"
+    if not args.pareto_results.exists():
+        raise FileNotFoundError(args.pareto_results)
+    src_slug = args.pareto_results.parent.name
+    out_dir = stage_output_dir(STAGE, DRIVER, src_slug)
 
-    print(f"[verify] loading {args.results_json}")
-    results = json.loads(args.results_json.read_text())
+    print(f"[06/verify] loading {args.pareto_results}")
+    results = json.loads(args.pareto_results.read_text())
     pareto_traces_1d = [np.asarray(t, dtype=float) for t in results["pareto_traces_1d"]]
     pareto_traces_2d = [np.asarray(t, dtype=float) for t in results["pareto_traces_2d"]]
     drought_metrics = np.asarray(results["drought_metrics"], dtype=float)
@@ -657,23 +432,40 @@ def main():
     n_years = int(results["n_years_out"])
     ssi_timescale = int(results.get("ssi_timescale", 3))
 
-    print(f"[verify] {len(pareto_traces_1d)} Pareto traces, "
+    print(f"[06/verify] {len(pareto_traces_1d)} Pareto traces, "
           f"K={drought_metrics.shape[1]}, T={n_years} years, SSI-{ssi_timescale}")
 
-    # Historical data + blocks (match script 04 conventions) ------------------
-    print("[verify] loading historical flows + building T-year blocks")
+    # Config dump
+    config = {
+        "stage": STAGE,
+        "driver": DRIVER,
+        "pareto_source": str(args.pareto_results),
+        "src_slug": src_slug,
+        "n_pareto": len(pareto_traces_1d),
+        "n_years": n_years,
+        "ssi_timescale": ssi_timescale,
+        "objective_keys": list(objective_keys),
+        "min_subset_size": args.min_subset_size,
+    }
+    (out_dir / "config.json").write_text(json.dumps(config, indent=2))
+
+    # Historical data + blocks (match stage 04 conventions)
+    print("[06/verify] loading historical flows + building T-year blocks")
     cache_dir = PROJECT_ROOT / "outputs" / "data_cache"
     monthly_2d, monthly_1d = prepare_data(cache_dir=cache_dir)
     hist_blocks_1d = resample_historical_blocks(monthly_1d, T_years=n_years, stride=1)
     hist_blocks_2d = resample_historical_blocks_2d(monthly_2d, T_years=n_years, stride=1)
-    print(f"[verify] {len(hist_blocks_1d)} historical blocks at T={n_years}")
+    print(f"[06/verify] {len(hist_blocks_1d)} historical blocks at T={n_years}")
 
-    # Historical block drought chars — load cache if present, else recompute --
-    hist_char_npz = variant_dir / "historical_block_chars.npz"
+    # Historical block drought chars -- load cache from the source archive if
+    # present (stage 04 writes it next to results.json), else recompute.
+    src_dir = args.pareto_results.parent
+    hist_char_npz_src = src_dir / "historical_block_chars.npz"
+    hist_block_chars = None
     ssi_calc = None
-    if hist_char_npz.exists():
-        print(f"[verify] loading cached {hist_char_npz}")
-        npz = np.load(hist_char_npz, allow_pickle=True)
+    if hist_char_npz_src.exists():
+        print(f"[06/verify] loading cached {hist_char_npz_src}")
+        npz = np.load(hist_char_npz_src, allow_pickle=True)
         hist_block_chars = np.asarray(npz["chars"], dtype=float)
         cached_keys = [str(k) for k in npz["objective_keys"]]
         if tuple(cached_keys) != objective_keys:
@@ -683,24 +475,30 @@ def main():
             )
             hist_block_chars = None
 
-    if ssi_calc is None:
-        # Fit the same SSI calculator the MOEA used — prefit on full history.
-        _ssi_series, ssi_calc = compute_ssi(monthly_1d, timescale=ssi_timescale)
+    # Fit the same SSI calculator the MOEA used -- prefit on full history.
+    _ssi_series, ssi_calc = compute_ssi(monthly_1d, timescale=ssi_timescale)
 
-    if not hist_char_npz.exists() or hist_block_chars is None:
-        print("[verify] recomputing historical block drought chars")
+    if hist_block_chars is None:
+        print("[06/verify] recomputing historical block drought chars")
         hist_block_chars = compute_historical_block_chars(
             monthly_1d, T_years=n_years, ssi_calc=ssi_calc,
             objective_keys=objective_keys, stride=1,
         )
 
-    # Subsets ----------------------------------------------------------------
+    # Persist a local copy under our stage output for plot reuse.
+    np.savez(
+        out_dir / "hist_block_chars.npz",
+        chars=hist_block_chars,
+        objective_keys=np.array(list(objective_keys)),
+    )
+
+    # Subsets
     hist_medians = np.median(hist_block_chars, axis=0)
     drought_mask = (drought_metrics >= hist_medians).any(axis=1)
     nominal_mask = (drought_metrics < hist_medians).all(axis=1)
     n_drought = int(drought_mask.sum())
     n_nominal = int(nominal_mask.sum())
-    print(f"[verify] subsets: drought={n_drought}, nominal={n_nominal} "
+    print(f"[06/verify] subsets: drought={n_drought}, nominal={n_nominal} "
           f"(union vs intersection complement on hist medians={hist_medians})")
 
     drought_traces_1d = [pareto_traces_1d[i]
@@ -710,33 +508,45 @@ def main():
     nominal_traces_2d = [pareto_traces_2d[i]
                          for i in np.where(nominal_mask)[0]]
 
-    # Criteria ---------------------------------------------------------------
-    print("[verify] criterion 1 — drought-space coverage")
+    # Criteria
+    print("[06/verify] criterion 1 -- drought-space coverage")
     c1 = criterion_1_coverage(drought_metrics, hist_block_chars, objective_keys)
 
-    print("[verify] criterion 2 — low-flow directionality")
+    print("[06/verify] criterion 2 -- low-flow directionality")
     c2 = criterion_2_low_flow_directionality(drought_traces_1d, hist_blocks_1d)
 
-    print("[verify] criterion 3 — non-drought fidelity")
+    print("[06/verify] criterion 3 -- non-drought fidelity")
     c3 = criterion_3_nominal_fidelity(
         nominal_traces_1d, nominal_traces_2d, hist_blocks_1d, hist_blocks_2d,
     )
 
-    print("[verify] criterion 4 — flow-space spread")
-    c4 = criterion_4_flow_space_spread(
+    print("[06/verify] criterion 4 -- flow-space spread")
+    c4, A_syn, A_hist = criterion_4_flow_space_spread(
         pareto_traces_1d, hist_blocks_1d, drought_metrics,
         hist_block_chars, drought_mask, nominal_mask,
     )
 
-    print("[verify] criterion 5 — drought onset seasonality (SSI re-transform)")
+    print("[06/verify] criterion 5 -- drought onset seasonality (SSI re-transform)")
     c5 = criterion_5_drought_onset(
         drought_traces_1d, hist_blocks_1d, ssi_calc,
         start_date="2100-01-01",
     )
 
-    # Assemble report --------------------------------------------------------
+    # Persist arrays needed by the plotting driver.
+    np.savez(
+        out_dir / "subsets.npz",
+        drought_mask=drought_mask,
+        nominal_mask=nominal_mask,
+        hist_medians=hist_medians,
+        drought_metrics=drought_metrics,
+        anti_ideal=anti_ideal,
+    )
+    np.savez(out_dir / "annual_means.npz", A_syn=A_syn, A_hist=A_hist)
+
+    # Assemble report
     report = {
-        "archive": str(args.results_json),
+        "archive": str(args.pareto_results),
+        "src_slug": src_slug,
         "n_pareto": len(pareto_traces_1d),
         "n_years": n_years,
         "ssi_timescale": ssi_timescale,
@@ -763,29 +573,16 @@ def main():
         else ("fail" if "fail" in overall_statuses else "insufficient_data")
     )
 
-    report_path = output_dir / "verification_report.json"
+    report_path = out_dir / "verification_report.json"
     report_path.write_text(json.dumps(report, indent=2))
-    print(f"[verify] wrote {report_path} — overall={report['overall_status']}")
+    print(f"[06/verify] wrote {report_path} -- overall={report['overall_status']}")
 
-    # Figures ----------------------------------------------------------------
-    plot_c1_coverage(drought_metrics, hist_block_chars,
-                     objective_keys, anti_ideal,
-                     fig_dir / "fig_verify_c1_drought_coverage.pdf")
-    plot_c2_low_flow(c2, fig_dir / "fig_verify_c2_drought_subset_fdc.pdf")
-    plot_c3_nominal(c3, fig_dir / "fig_verify_c3_nominal_subset.pdf")
-    # Prepare annual-mean arrays for c4 figure
-    A_syn = np.array([_annual_totals(t).mean() for t in pareto_traces_1d])
-    A_hist = np.array([_annual_totals(b).mean() for b in hist_blocks_1d])
-    plot_c4_spread(A_syn, A_hist, drought_metrics,
-                   drought_mask, nominal_mask, c4,
-                   fig_dir / "fig_verify_c4_annual_spread.pdf")
-    plot_c5_onset(c5, fig_dir / "fig_verify_c5_drought_onset.pdf")
-
-    # Compact terminal summary -----------------------------------------------
-    print("\n[verify] summary")
+    # Compact terminal summary
+    print("\n[06/verify] summary")
     for key, crit in report["criteria"].items():
         print(f"  {key:25s} {crit['status']}")
     print(f"  {'overall':25s} {report['overall_status']}")
+    print(f"  outputs: {out_dir}")
 
 
 if __name__ == "__main__":

@@ -162,19 +162,30 @@ the wrapper-mode ablation experiments in `workflows/0N_<stage>/15_*` and
 
 ## DD-07: Borg interface
 
-*Status: SETTLED 2026-04-15.*
+*Status: SETTLED 2026-04-15. Updated 2026-04-28 -- MM Borg only.*
 
-Borg MOEA is the production algorithm. EpsNSGAII from platypus is the local
-stand-in used for analytic benchmarks on machines without the Borg license;
-both algorithms share the epsilon-dominance archive mechanism that the
-Manhattan-distance construction relies on. Analytic results obtained with
-EpsNSGAII are valid for the construction; production Cannonsville and
-library-comparison results use Borg on HPC. No head-to-head comparison
-between the two algorithms is required beyond confirming both produce
-interior-filling archives on the analytic benchmark (already verified in
-DD-11).
+MM Borg MOEA (multi-master, MPI) is the **only** optimizer used anywhere
+in the project. The analytic benchmark, the dimension sweep, the
+epsilon x NFE sensitivity grid, the calibration runs, the ablations, and
+the production Cannonsville runs all dispatch through
+`src.borg_runner.run_optimization` and run via mpirun. The serial Borg
+backend is retained as a single-process fallback for one-off interactive
+debugging only. The earlier EpsNSGAII (platypus) stand-in is removed
+from the codebase entirely as of the 2026-04-28 cleanup -- it was only
+ever a laptop convenience for runs that should always have been done on
+HPC. NSGA-III and MOEA/D remain out of scope by user direction.
 
-NSGA-III and MOEA/D are out of scope by user direction.
+**Operational topology rule.** The MM Borg wrapper picks
+``n_islands`` automatically from the MPI rank count. Single-island
+master-slave mode (``n_islands == 1``) intermittently SIGSEGVs on a
+worker rank during MPI startup once the per-master worker count
+exceeds ~6, so :func:`src.borg_runner._auto_islands` enforces
+``n_islands >= 2`` for any allocation of >= 5 ranks. The production
+stage 04 slurm matches the Hadka & Reed 2015 ratio (4 islands at 120
+ranks). Per-call ``maxEvaluations`` is divided by ``n_islands`` inside
+the wrapper because Borg's ``solveMPI`` argument is per-island, not
+total. See ``docs/borg_integration_notes.md`` for the complete bug
+analysis.
 
 **Pointer:** `src/borg_runner.py`; DD-11 verification.
 
@@ -261,8 +272,8 @@ IEEE 754 rounding budget.
 K-dimensional analytic benchmark shows that the archive matches reference
 QMC samplers on mean L1 distance from the anti-ideal and on signed orthant
 occupancy across the dimensionalities tested, and matches or exceeds them
-on interior mass fraction. All numerical values are preliminary EpsNSGAII
-stand-in results pending production Borg reproduction on HPC.
+on interior mass fraction. All numerical values are produced by MM Borg
+MOEA via MPI on HPC (per DD-07).
 
 **Anti-ideal placement.** The construction depends on $D_j(x) \leq D^*_j$
 for every feasible $x$; if any archive member violates this in any

@@ -750,17 +750,18 @@ reference-direction mechanism is not is well-grounded in Section 2.2.3.
 However, the claim would be strengthened by a brief empirical
 comparison.
 
-**Preemptive action.** The analytic benchmark results were produced
-with EpsNSGAII (platypus) as a locally runnable stand-in for Borg MOEA.
-When production Borg MOEA runs are completed on HPC for the same analytic
-benchmark, the comparison between EpsNSGAII and Borg archive coverage
-quality will be available implicitly. Add a Supporting Information note
-reporting that EpsNSGAII and Borg MOEA produce equivalent interior-filling
-coverage on the analytic benchmark because both use the same epsilon-
-dominance archive mechanism, then show Borg's convergence advantage on
-the higher-dimensional Cannonsville problem via multi-seed hypervolume
-curves. This turns the uniqueness claim from an assertion into a supported
-finding grounded in the specific epsilon-dominance archiving property.
+**Preemptive action.** Every optimization result in the paper, analytic
+or applied, is produced with MM Borg MOEA via MPI. (The EpsNSGAII
+laptop stand-in that earlier supported faster local iteration has been
+removed from the codebase as of 2026-04-28; see DD-07.) The defence to
+reviewer pressure for an NSGA-III / epsilon-NSGA-II comparison is
+therefore: (i) the construction relies on the epsilon-dominance archive
+mechanism, which Borg implements via Hadka & Reed (2013); (ii) running
+NSGA-III with reference directions tuned to the L1 hyperplane is a
+non-trivial methods study in itself and out of scope; (iii) Borg's
+multi-operator self-adaptation gives a documented convergence advantage
+on the Cannonsville problem via multi-seed hypervolume curves, which we
+do report.
 
 ---
 

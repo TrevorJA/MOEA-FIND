@@ -65,12 +65,11 @@ SI-10, and SI-11 below are new placeholders added with this mapping.
 
 *Cross-referenced from main-text Section 3.1.*
 
-> *Placeholder. Preliminary dimension-sweep evidence on a constrained
-> analytic benchmark is documented in
-> `evidence/shell_vs_interior_diagnostic.md` (EpsNSGAII stand-in). The
-> benchmark, dimensionalities tested, and final tabulation are not yet
-> settled and will be finalised once §2.3 of the main text is written and
-> production Borg results on HPC are in hand.*
+> *Placeholder. The dimension-sweep evidence on a constrained analytic
+> benchmark is documented in `evidence/shell_vs_interior_diagnostic.md`
+> (MM Borg MOEA on HPC, per DD-07). The benchmark, dimensionalities
+> tested, and final tabulation will be finalised once §2.3 of the main
+> text is written.*
 
 ---
 

@@ -1,17 +1,13 @@
-"""Script 02 — Analytic 3D proof-of-concept (manuscript §5, Figure 2).
+"""Analytic 3D proof-of-concept (manuscript Fig 2).
 
-Runs the 3-objective Manhattan-norm analytic problem (k=3, 4 objectives
-including the Manhattan norm) and verifies that the Pareto front tiles the
-2-simplex in objective space. Produces the hyperplane-check and coverage-
-comparison numbers cited in DD-10.
+Runs the 3-objective Manhattan-norm analytic problem under MM Borg MOEA
+(launched via MPI) and writes numerical artifacts only. Figures are
+produced separately by ``workflows/01_analytic_validation/plots/analytic_3d.py``.
 
-Outputs under outputs/exp02_analytic_3d/:
+Outputs under ``outputs/01_analytic_validation/analytic_3d/<slug>/``:
+    - config.json
     - results.json
     - pareto.npz
-    - config.json
-
-Run:
-    python scripts/02_analytic_3d.py --nfe 50000 --seed 42 --plot
 """
 
 from __future__ import annotations
@@ -19,7 +15,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -33,47 +28,62 @@ sys.modules.setdefault("synhydro", _stub)
 sys.modules.setdefault("synhydro.droughts", _stub.droughts)
 sys.modules.setdefault("synhydro.droughts.ssi", _stub.droughts.ssi)
 
-from platypus import EpsNSGAII, Problem, Real  # noqa: E402
-
 from src.analysis import (  # noqa: E402
     coverage_metrics,
     generate_lhs_samples,
     generate_sobol_samples,
 )
+from src.borg_runner import run_optimization  # noqa: E402
 from src.objectives import analytic_objectives  # noqa: E402
-from src.plotting.analytic import fig2_3d_projections  # noqa: E402
+from src.paths import stage_output_dir  # noqa: E402
 
-
+STAGE = "01_analytic_validation"
+DRIVER = "analytic_3d"
 K = 3
-DV_RANGE = (-3.0, 3.0)
+DV_LO, DV_HI = -3.0, 3.0
 ANTI_IDEAL = np.array([3.0, 3.0, 3.0])
-DEFAULT_EPSILON = 0.15
-OUTPUT_SLUG = "exp02_analytic_3d"
 
 
-def run(nfe: int, seed: int, epsilon: float) -> dict:
+def slug(nfe: int, seed: int, epsilon: float) -> str:
+    return f"k3_nfe{nfe}_eps{epsilon:.3f}_s{seed}"
+
+
+def run(nfe: int, seed: int, epsilon: float, output_dir: Path) -> dict:
     np.random.seed(seed)
 
-    def evaluate(variables):
-        dvs = np.array([float(v) for v in variables])
-        return analytic_objectives(dvs, ANTI_IDEAL).tolist()
+    def evaluate(unit_dvs: np.ndarray):
+        dvs = DV_LO + unit_dvs * (DV_HI - DV_LO)
+        objs = analytic_objectives(dvs, ANTI_IDEAL).tolist()
+        return objs, []
 
-    problem = Problem(K, K + 1)
-    for i in range(K):
-        problem.types[i] = Real(DV_RANGE[0], DV_RANGE[1])
-    problem.function = evaluate
+    opt = run_optimization(
+        algorithm="borg_mm",
+        evaluate=evaluate,
+        n_dvs=K,
+        n_objs=K + 1,
+        n_constrs=0,
+        epsilons=[epsilon] * (K + 1),
+        nfe=nfe,
+        seed=seed,
+        output_dir=output_dir,
+        # n_islands auto-picked by borg_runner._auto_islands
+    )
 
-    algo = EpsNSGAII(problem, epsilons=[epsilon] * (K + 1))
-    t0 = time.perf_counter()
-    algo.run(nfe)
-    wall = time.perf_counter() - t0
+    if opt.pareto_dvs.shape[0] == 0:
+        return {
+            "n_solutions": 0,
+            "wall_seconds": opt.elapsed_s,
+            "algorithm": opt.algorithm,
+            "pareto_dvs": np.empty((0, K)),
+            "pareto_objs": np.empty((0, K + 1)),
+        }
 
-    dvs = np.array([s.variables[:] for s in algo.result])
-    objs = np.array([s.objectives[:] for s in algo.result])
+    physical_dvs = DV_LO + opt.pareto_dvs * (DV_HI - DV_LO)
+    objs = opt.pareto_objs
 
-    lb = np.full(K, DV_RANGE[0])
-    ub = np.full(K, DV_RANGE[1])
-    n = len(dvs)
+    lb = np.full(K, DV_LO)
+    ub = np.full(K, DV_HI)
+    n = len(physical_dvs)
     lhs = generate_lhs_samples(n, K, lb, ub, seed=seed)
     sobol = generate_sobol_samples(n, K, lb, ub, seed=seed)[:n]
     rng = np.random.default_rng(seed)
@@ -84,67 +94,52 @@ def run(nfe: int, seed: int, epsilon: float) -> dict:
 
     return {
         "n_solutions": int(n),
-        "wall_seconds": wall,
+        "wall_seconds": opt.elapsed_s,
+        "algorithm": opt.algorithm,
         "hyperplane_max_dev": float(np.max(np.abs(obj_sums - expected_sum))),
         "coverage": {
-            "pareto": coverage_metrics(dvs, lb, ub),
+            "pareto": coverage_metrics(physical_dvs, lb, ub),
             "lhs": coverage_metrics(lhs, lb, ub),
             "sobol": coverage_metrics(sobol, lb, ub),
             "random": coverage_metrics(rand, lb, ub),
         },
-        "pareto_dvs": dvs,
+        "pareto_dvs": physical_dvs,
         "pareto_objs": objs,
     }
 
 
-def plot(pareto_dvs: np.ndarray, out_path: Path) -> None:
-    """Produce the manuscript Figure 2 panel-b via src.plotting.analytic."""
-    import matplotlib.pyplot as plt
-
-    fig = fig2_3d_projections(pareto_dvs)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=300)
-    plt.close(fig)
-
-
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--nfe", type=int, default=50_000)
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--epsilon", type=float, default=DEFAULT_EPSILON)
-    p.add_argument("--plot", action="store_true")
-    p.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "outputs" / OUTPUT_SLUG)
-    p.add_argument("--figure-path", type=Path,
-                   default=PROJECT_ROOT / "figures" / "analytic" / "fig02_analytic_3d.pdf")
+    p.add_argument("--nfe", type=int, required=True)
+    p.add_argument("--seed", type=int, required=True)
+    p.add_argument("--epsilon", type=float, required=True)
     args = p.parse_args()
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    (args.output_dir / "config.json").write_text(json.dumps({
-        "script": "02_analytic_3d.py",
-        "manuscript_section": "§5 Analytic Validation (Fig 2, DD-10)",
+    out_dir = stage_output_dir(STAGE, DRIVER, slug(args.nfe, args.seed, args.epsilon))
+    (out_dir / "config.json").write_text(json.dumps({
+        "stage": STAGE, "driver": DRIVER,
+        "algorithm": "borg_mm",
         "nfe": args.nfe, "seed": args.seed, "epsilon": args.epsilon,
+        "K": K, "dv_range": [DV_LO, DV_HI], "anti_ideal": ANTI_IDEAL.tolist(),
     }, indent=2))
 
-    print(f"[02] 3D analytic: nfe={args.nfe} seed={args.seed} eps={args.epsilon}")
-    r = run(args.nfe, args.seed, args.epsilon)
+    print(f"[01/analytic_3d] nfe={args.nfe} seed={args.seed} eps={args.epsilon}")
+    r = run(args.nfe, args.seed, args.epsilon, out_dir)
+
+    if r["n_solutions"] == 0:
+        print("  WARNING: no Pareto solutions; nothing to write.")
+        return
 
     summary = {k: v for k, v in r.items() if k not in ("pareto_dvs", "pareto_objs")}
-    (args.output_dir / "results.json").write_text(json.dumps(summary, indent=2, default=float))
-    np.savez(args.output_dir / "pareto.npz", dvs=r["pareto_dvs"], objs=r["pareto_objs"])
+    (out_dir / "results.json").write_text(json.dumps(summary, indent=2, default=float))
+    np.savez(out_dir / "pareto.npz", dvs=r["pareto_dvs"], objs=r["pareto_objs"])
 
     cov = r["coverage"]
-    print(f"  n={r['n_solutions']} "
-          f"hp_dev={r['hyperplane_max_dev']:.1e}")
+    print(f"  n={r['n_solutions']} hp_dev={r['hyperplane_max_dev']:.1e}")
     print(f"  L2* pareto={cov['pareto']['L2_star_discrepancy']:.5f} "
           f"lhs={cov['lhs']['L2_star_discrepancy']:.5f} "
           f"sobol={cov['sobol']['L2_star_discrepancy']:.5f}")
-    print(f"  NN_CV pareto={cov['pareto']['nn_cv']:.4f} "
-          f"lhs={cov['lhs']['nn_cv']:.4f} "
-          f"sobol={cov['sobol']['nn_cv']:.4f}")
-
-    if args.plot:
-        plot(r["pareto_dvs"], args.figure_path)
-        print(f"  figure: {args.figure_path}")
+    print(f"  outputs: {out_dir}")
 
 
 if __name__ == "__main__":

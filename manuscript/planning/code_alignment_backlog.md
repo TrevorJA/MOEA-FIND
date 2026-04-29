@@ -68,21 +68,20 @@ Both annual mean and annual CV of synthetic monthly flows must lie within 50 per
 
 ---
 
-## Item 5: Analytic benchmark scripts use EpsNSGAII — note only, not a discrepancy
+## Item 5: Analytic benchmark scripts use EpsNSGAII -- RESOLVED 2026-04-28
 
 **Manuscript** (§2.2.2):
 > "The multi-objective evolutionary optimizer used by MOEA-FIND is Borg MOEA (Hadka and Reed, 2013)..."
 
-**Current analytic scripts** (`scripts/02_analytic_3d.py`, `scripts/01_analytic_2d.py`):
-```python
-from platypus import EpsNSGAII, Problem, Real
-algo = EpsNSGAII(problem, epsilons=[epsilon] * (K + 1))
-```
-The analytic benchmark scripts use EpsNSGAII from `platypus` as a locally runnable stand-in. The single-site Cannonsville script (`04_kirsch_single_site.py`) docstring reads "serial Borg/platypus fallback," confirming that platypus is the local substitute and Borg is the production algorithm.
+**Resolution.** As of 2026-04-28 the EpsNSGAII (platypus) stand-in was
+removed from the codebase entirely. Every analytic and production
+optimization run now dispatches MM Borg via MPI through
+`src.borg_runner.run_optimization`. No parenthetical is needed in §3.1;
+the analytic and production sections both cite the same algorithm.
 
-**This is not a manuscript discrepancy.** Borg is the production algorithm; EpsNSGAII is the local test stand-in used for rapid development on machines without the Borg license. The manuscript correctly identifies Borg. The analytic results are valid because both algorithms use the same epsilon-dominance archive mechanism, which is the only property the theoretical argument requires. The Section 3.1 dimension sweep figures produced with EpsNSGAII are valid preliminary results pending reproduction with Borg on HPC.
-
-**Note for §3.1:** A parenthetical identifying EpsNSGAII as the algorithm used for the analytic runs, with a note that production Cannonsville runs use Borg, cleanly separates preliminary from production results without contradicting the §2.2.2 algorithm description.
+The legacy `figures/main/fig04_dimension_sweep.pdf` and
+`figures/01_analytic_validation/...` figures generated under EpsNSGAII
+have been regenerated with MM Borg on HPC.
 
 ---
 
@@ -122,7 +121,7 @@ The analytic benchmark scripts use EpsNSGAII from `platypus` as a locally runnab
 | 2 | §2.2.4 | non-drought mean within 15% | all-flow mean within 50% | Implement non-drought filter in code; TREV-DECISION on final value |
 | 3 | §2.2.4 | two constraints listed | three present (seasonal cycle also) | Add one sentence to manuscript describing seasonal cycle constraint |
 | 4 | §2.2.4 | annual mean/CV not described | annual mean + CV at 50% tol | Describe in manuscript; update code tolerances; TREV-DECISION on final values |
-| 5 | §2.2.2, §3.1 | Borg MOEA (production) | EpsNSGAII (local stand-in) | No change needed — note in §3.1 parenthetical only |
+| 5 | §2.2.2, §3.1 | MM Borg MOEA (all runs) | MM Borg MOEA (all runs) | RESOLVED 2026-04-28 — EpsNSGAII removed; analytic + production both use MM Borg |
 | 6 | §3.1 | implies single NFE for all analytic results | SI-1 from 2K run; Fig 4 from 30K run | Add parenthetical clarifying the two runs |
 | 7 | CLAUDE.md | — | 1362 (stale) vs 6158/682 (current outputs) | Update CLAUDE.md |
 

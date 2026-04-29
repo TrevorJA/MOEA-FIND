@@ -1,30 +1,17 @@
-"""Script 14 — DV-uniformity ablation comparison and SI figure set.
+"""DV-uniformity ablation comparison + SI figure set (SI-G).
 
-Loads every ``results.json`` written by ``13_dv_uniformity_ablation.py`` under
-``outputs/exp13_dv_uniformity_ablation/{hydrologic,dv_uniform}/...``, pools
-the Pareto archive across seeds within each arm, and renders the SI figures:
-
-    figSI_ablation_pareto_2d.pdf         — side-by-side drought-space Pareto
-    figSI_ablation_pareto_3d.pdf         — same in 3D (if >=3 objectives)
-    figSI_ablation_manhattan_dist.pdf    — Manhattan-objective distribution
-    figSI_ablation_hydrology_panels.pdf  — ACF / FDC / seasonal panel
-    figSI_ablation_per_arm_timeseries_stats.pdf  — per-trace stat boxplots
-    figSI_ablation_dv_distributions.pdf  — DV QQ + histogram per arm
-    figSI_ablation_infeasibility_bar.pdf — final infeasibility per arm
+Loads every ``results.json`` written by ``dv_uniformity_ablation.py``
+under ``outputs/04_moea_find_single_site/dv_uniformity_ablation/{arm}/...``,
+pools the Pareto archive across seeds within each arm, and renders the
+SI figures (drought-space Pareto 2D/3D, Manhattan distribution, hydrology
+panels, per-arm timeseries-stat boxplots, DV distributions, infeasibility
+bars) into ``figures/04_moea_find_single_site/dv_uniformity_compare/``.
 
 Also writes ``comparison_summary.json`` with the falsification checklist
-values (max-duration ratio, max-severity ratio, median Manhattan distance,
-hyperplane identity, infeasibility rates) so the check is machine-readable.
+values into ``outputs/04_moea_find_single_site/dv_uniformity_compare/``.
 
-Both arms must produce at least one Pareto archive under
-``outputs/exp13_dv_uniformity_ablation/`` or the script warns and emits
-whatever figures are possible.
-
-Run serially (no MPI, no SLURM required for local execution):
-    python workflows/04_moea_find_single_site/dv_uniformity_compare.py
-
-Or via SLURM:
-    sbatch workflows/04_moea_find_single_site/slurm/dv_uniformity_compare.slurm
+Plotting only -- never re-runs MOEA. Run via:
+    sbatch workflows/04_moea_find_single_site/slurm/plots/dv_uniformity_compare.slurm
 """
 
 from __future__ import annotations
@@ -37,7 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.experiment_utils import (  # noqa: E402
@@ -46,9 +33,13 @@ from src.experiment_utils import (  # noqa: E402
     compute_ssi_anti_ideal,
 )
 from src.experiment_config import DEFAULT_EXPERIMENT  # noqa: E402
+from src.paths import stage_figure_dir, stage_output_dir  # noqa: E402
 
-INPUT_SLUG = "exp13_dv_uniformity_ablation"
-OUTPUT_SLUG = "exp14_dv_uniformity_compare"
+STAGE = "04_moea_find_single_site"
+DRIVER = "dv_uniformity_compare"
+INPUT_DRIVER = "dv_uniformity_ablation"
+KIRSCH_LIBRARY_STAGE = "03_kirsch_library"
+KIRSCH_LIBRARY_DRIVER = "build_library"
 
 # Logical arms for stratified comparison. The on-disk layout has two arm
 # directories (hydrologic/, dv_uniform/) but dv_uniform/ may contain runs
@@ -153,9 +144,7 @@ def _compute_per_trace_stats(
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--input-dir", type=Path,
-                   default=PROJECT_ROOT / "outputs" / INPUT_SLUG)
-    p.add_argument("--output-dir", type=Path,
-                   default=PROJECT_ROOT / "outputs" / OUTPUT_SLUG)
+                   default=stage_output_dir(STAGE, INPUT_DRIVER, create=False))
     p.add_argument("--max-dv-rows-per-arm", type=int, default=200,
                    help="Cap on number of Pareto-member DV vectors sampled "
                         "for the QQ/histogram figure.")
@@ -164,28 +153,23 @@ def main():
                         "threshold. Use to exclude smoke-test runs from the "
                         "production comparison pool.")
     p.add_argument("--arms", nargs="+", default=list(DEFAULT_ARMS),
-                   help="Which logical arms to compare. Options: "
-                        "hydrologic, dv_uniform (legacy aggregate), "
-                        "dv_l2_star, dv_ks, dv_ad. Default is the four-way "
-                        "hydrologic/dv_l2_star/dv_ks/dv_ad comparison.")
+                   help="Which logical arms to compare.")
     p.add_argument("--kirsch-library-dir", type=Path,
-                   default=PROJECT_ROOT / "outputs" / "exp05_kirsch_library",
-                   help="Directory containing exp05 Kirsch library "
+                   default=stage_output_dir(KIRSCH_LIBRARY_STAGE,
+                                            KIRSCH_LIBRARY_DRIVER, create=False),
+                   help="Directory containing the Kirsch library "
                         "characteristics.npz, used for the reference panel.")
     args = p.parse_args()
 
     unknown = [a for a in args.arms if a not in _LOGICAL_ARM_SPEC]
     if unknown:
         raise SystemExit(
-            f"Unknown arm(s): {unknown}. "
-            f"Valid: {list(_LOGICAL_ARM_SPEC)}"
+            f"Unknown arm(s): {unknown}. Valid: {list(_LOGICAL_ARM_SPEC)}"
         )
     ARMS: Tuple[str, ...] = tuple(args.arms)
 
-    out_dir = args.output_dir
-    fig_dir = out_dir / "figures"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    fig_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = stage_output_dir(STAGE, DRIVER)
+    fig_dir = stage_figure_dir(STAGE, DRIVER)
 
     # ------------------------------------------------------------------
     # Load per-arm archives
@@ -307,7 +291,7 @@ def main():
     # vs. 20-year synthetic traces, producing an out-of-range location.
     hist_block_median = np.median(hist_block_chars, axis=0)
 
-    # Kirsch library reference cloud from exp05 (random unconstrained traces)
+    # Kirsch library reference cloud from stage 03 (random unconstrained traces)
     kirsch_cloud_2d: Optional[np.ndarray] = None
     kirsch_cloud_3d: Optional[np.ndarray] = None
     kirsch_lib_path = args.kirsch_library_dir / "characteristics.npz"

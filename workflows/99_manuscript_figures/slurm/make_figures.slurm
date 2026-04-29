@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=moea_10_manuscript_figures
+#SBATCH --job-name=99_make_figures
 #SBATCH --output=workflows/slurm_logs/%x_%j.out
 #SBATCH --error=workflows/slurm_logs/%x_%j.err
 #SBATCH --time=00:30:00
@@ -7,23 +7,18 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
-# Manuscript: all figures (§3 concept, §5 validation, §6 single-site,
-#             §7 DRB, SI-1 hyperplane, SI-4 convergence)
-# Experiment:  10 — final figure assembly
+# Stage 99 - manuscript figure assembly
 # Parallelism: serial
 #
-# Run after any experiment output has changed.
+# Run after every contributing upstream stage has been executed.
 
 # shellcheck source=./_common.sh
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-# Resolve which exp04 variant feeds fig05/06. If BORG_NFE is set
-# (e.g. by the upstream exp04 SLURM via --export), pass it through;
-# otherwise default to the production NFE used by current exp04/09
-# runs.  DEFAULT_EXPERIMENT.nfe in src/experiment_config.py is a
-# plumbing smoke value (nfe=100) that would cause fig05/06 to SKIP
-# with "missing outputs/exp04_.../residual_T20_nfe100_s42_constrained".
-: "${BORG_NFE:=200000}"
+# Single-site MOEA-FIND variant slug that feeds fig05/fig06/fig07.
+# Bake the slug here; do not rely on env-var defaults.
+SINGLE_SITE_SLUG="residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad"
+
 python workflows/99_manuscript_figures/make_figures.py \
-    --exp04-nfe "${BORG_NFE}"
+    --single-site-slug "${SINGLE_SITE_SLUG}"

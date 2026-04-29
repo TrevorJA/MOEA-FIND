@@ -13,30 +13,29 @@ Factor space = the optimized MOEA-FIND objective axes (read from
 because they have no space-filling guarantee across the realization
 sample.
 
-Outputs (``outputs/exp10_nyc_sensitivity/<slug>/``):
+Compute-only driver: writes numerical artifacts under
+``outputs/08_nyc_sensitivity/run_sa/<slug>/``. Figures are produced by
+the paired plotting driver
+``workflows/08_nyc_sensitivity/plots/run_sa.py``.
+
+Outputs (``outputs/08_nyc_sensitivity/run_sa/<slug>/``):
 
     config.json
     results/
         indices_<method>.parquet            (long-form: outcome × factor × cols)
         bootstrap_<method>.parquet
         rank_stability_<method>.parquet
+        rank_stability_summary_<method>.parquet
+        convergence_<method>.parquet
         cross_method_rank_corr.parquet      (per outcome, method × method)
         cross_outcome_rank_corr.parquet     (per method, outcome × outcome)
-        convergence_<method>.parquet
         selection_log.json
-    figures/
-        tornado_<outcome>_<method>.pdf
-        heatmap_indices_<method>.pdf
-        convergence_<outcome>.pdf
-        cross_method_rank_corr_<outcome>.pdf
-        cross_outcome_rank_corr_<method>.pdf
 
 Usage:
     python workflows/08_nyc_sensitivity/run_sa.py \\
-        --bank outputs/exp09_drb_policy_reeval/<slug>/results/metric_bank.parquet \\
-        --chars outputs/exp04_kirsch_single_site/<slug>/results.json \\
-        --config workflows/08_nyc_sensitivity/configs/all_methods.yaml \\
-        --plot
+        --bank outputs/06_pywrdrb_reeval/policy_reeval/<src_slug>/results/metric_bank.parquet \\
+        --chars outputs/04_moea_find_single_site/run_moea_find/<src_slug>/results.json \\
+        --config workflows/08_nyc_sensitivity/configs/all_methods.yaml
 """
 
 from __future__ import annotations
@@ -57,6 +56,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.drought_metrics import PRESETS, REGISTRY, resolve_metric_set, metric_names  # noqa: E402
 from src.io import load_metric_bank, load_pareto_chars, save_experiment_config  # noqa: E402
+from src.paths import stage_output_dir  # noqa: E402
 from src.sensitivity import (  # noqa: E402
     HEADLINE_INDEX,
     METHODS,
@@ -71,7 +71,8 @@ from src.sensitivity import (  # noqa: E402
 )
 from src.slugs import build_slug  # noqa: E402
 
-OUTPUT_SLUG = "exp10_nyc_sensitivity"
+STAGE = "08_nyc_sensitivity"
+DRIVER = "run_sa"
 
 DEFAULT_METHODS = ("delta", "pawn", "rbd_fast")
 DEFAULT_OUTCOMES = (
@@ -260,10 +261,12 @@ def main():
         description="Stage 08 — global sensitivity analysis of NYC outcomes.",
     )
     p.add_argument("--bank", type=Path, required=True,
-                   help="Stage-06 metric_bank.parquet (or .csv).")
+                   help="Stage-06 metric_bank.parquet under "
+                        "outputs/06_pywrdrb_reeval/policy_reeval/<src_slug>/results/.")
     p.add_argument("--chars", type=Path, required=True,
-                   help="Upstream MOEA-FIND results.json with 'pareto_chars' "
-                        "and 'objective_keys'.")
+                   help="Upstream MOEA-FIND results.json under "
+                        "outputs/04_moea_find_single_site/run_moea_find/<src_slug>/. "
+                        "Must contain 'pareto_chars' and 'objective_keys'.")
     p.add_argument("--methods", nargs="+", default=list(DEFAULT_METHODS),
                    choices=sorted(METHODS.keys()),
                    help="SA methods to run. Default: all three.")
@@ -292,10 +295,6 @@ def main():
     p.add_argument("--pawn-S", type=int, default=10)
     p.add_argument("--rbd-fast-M", type=int, default=10)
     p.add_argument("--rbd-fast-num-resamples", type=int, default=100)
-    p.add_argument("--plot", action="store_true",
-                   help="Render PDFs of every diagnostic figure.")
-    p.add_argument("--output-dir", type=Path,
-                   default=PROJECT_ROOT / "outputs" / OUTPUT_SLUG)
     if yaml_defaults:
         p.set_defaults(**yaml_defaults)
     args = p.parse_args()
@@ -352,19 +351,17 @@ def main():
         n_outcomes=len(args.outcomes),
         s=args.seed,
     )
-    out = Path(args.output_dir) / slug
-    out.mkdir(parents=True, exist_ok=True)
+    out = stage_output_dir(STAGE, DRIVER, slug)
     results_dir = out / "results"
-    figures_dir = out / "figures"
     results_dir.mkdir(parents=True, exist_ok=True)
-    if args.plot:
-        figures_dir.mkdir(parents=True, exist_ok=True)
     print(f"[08] variant: {slug}")
     print(f"[08] output: {out}")
 
     # --- Config dump ---
     save_experiment_config(out, {
         "script": "workflows/08_nyc_sensitivity/run_sa.py",
+        "stage": STAGE,
+        "driver": DRIVER,
         "variant": slug,
         "bank": str(args.bank),
         "chars": str(args.chars),
@@ -601,106 +598,7 @@ def main():
     print(f"[08] selection anchors per outcome: " +
           ", ".join(f"{oc}={selection_log[oc]['_anchor']}"
                     for oc, *_ in full_outcome_list))
-
-    # --- Plotting ---
-    if args.plot:
-        _emit_figures(
-            figures_dir=figures_dir,
-            method_results=method_results,
-            bootstrap_results=bootstrap_results,
-            convergence_results=convergence_results,
-            full_outcome_list=full_outcome_list,
-            methods=list(args.methods),
-        )
-
     print(f"[08] done. results -> {results_dir}")
-
-
-def _emit_figures(
-    *,
-    figures_dir: Path,
-    method_results: Dict[str, Dict[str, pd.DataFrame]],
-    bootstrap_results: Dict[str, Dict[str, pd.DataFrame]],
-    convergence_results: Dict[str, Dict[str, pd.DataFrame]],
-    full_outcome_list: List[Tuple[str, str, str]],
-    methods: List[str],
-) -> None:
-    """Render every diagnostic figure to ``figures_dir``."""
-    import matplotlib
-    matplotlib.use("Agg")
-    from src.plotting.sensitivity import (
-        plot_convergence,
-        plot_index_heatmap,
-        plot_rank_correlation,
-        plot_tornado,
-    )
-    from src.sensitivity import cross_method_rank_corr, cross_outcome_rank_corr
-
-    # Tornado per (outcome, method) — uses the bootstrap CI for whiskers.
-    for method_name in methods:
-        headline = HEADLINE_INDEX[method_name]
-        for outcome_label, *_ in full_outcome_list:
-            indices_df = method_results[method_name][outcome_label].copy()
-            boot_df = bootstrap_results[method_name][outcome_label]
-            # Replace the per-method CI columns with the diagnostic-layer
-            # bootstrap CI so all tornadoes use a uniform definition.
-            indices_df = indices_df.copy()
-            indices_df["ci_lo"] = boot_df["ci_lo"]
-            indices_df["ci_hi"] = boot_df["ci_hi"]
-            plot_tornado(
-                indices_df, headline_col=headline,
-                title=f"{method_name}: {outcome_label}",
-                output_path=figures_dir / f"tornado_{outcome_label}_{method_name}.pdf",
-            )
-
-    # Heatmap factor × outcome per method.
-    for method_name in methods:
-        headline = HEADLINE_INDEX[method_name]
-        plot_index_heatmap(
-            method_results[method_name],
-            method_name=method_name,
-            headline_col=headline,
-            output_path=figures_dir / f"heatmap_indices_{method_name}.pdf",
-        )
-
-    # Convergence per outcome (one figure per outcome, all factors,
-    # method-faceted via stacked subplots).
-    import matplotlib.pyplot as plt
-    for outcome_label, *_ in full_outcome_list:
-        fig, axes = plt.subplots(
-            len(methods), 1, figsize=(6.5, 3.0 * len(methods)),
-            sharex=True,
-        )
-        if len(methods) == 1:
-            axes = [axes]
-        for ax, method_name in zip(axes, methods):
-            plot_convergence(
-                convergence_results[method_name][outcome_label],
-                title=f"{method_name}: {outcome_label}",
-                ax=ax,
-            )
-        fig.tight_layout()
-        fig.savefig(figures_dir / f"convergence_{outcome_label}.pdf")
-        plt.close(fig)
-
-    # Cross-method rank correlation per outcome.
-    for outcome_label, *_ in full_outcome_list:
-        per_method = {
-            m: method_results[m][outcome_label] for m in methods
-        }
-        rho = cross_method_rank_corr(per_method)
-        plot_rank_correlation(
-            rho, title=f"Cross-method rank correlation: {outcome_label}",
-            output_path=figures_dir / f"cross_method_rank_corr_{outcome_label}.pdf",
-        )
-
-    # Cross-outcome rank correlation per method.
-    for method_name in methods:
-        rho = cross_outcome_rank_corr(method_results[method_name], method=method_name)
-        plot_rank_correlation(
-            rho, title=f"Cross-outcome rank correlation: {method_name}",
-            output_path=figures_dir / f"cross_outcome_rank_corr_{method_name}.pdf",
-        )
 
 
 if __name__ == "__main__":

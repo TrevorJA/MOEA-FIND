@@ -1,51 +1,44 @@
 #!/bin/bash
-#SBATCH --job-name=moea_09_reeval
+#SBATCH --job-name=06_policy_reeval
 #SBATCH --output=workflows/slurm_logs/%x_%j.out
 #SBATCH --error=workflows/slurm_logs/%x_%j.err
-#SBATCH --nodes=3
-#SBATCH --ntasks-per-node=30
+#SBATCH --nodes=8
+#SBATCH --ntasks-per-node=20
 #SBATCH --exclusive
 #SBATCH --time=04:00:00
 #SBATCH --account=tja73
 #SBATCH --partition=normal
+
+# Stage 06 / policy_reeval -- MOEA-FIND Pareto -> Pywr-DRB -> metric bank.
+# Manuscript: contributes data to Fig 9 (scenario discovery, stage 07).
+#
 # MPI transport note (Hopper, OpenMPI 4.0.5):
 # The original flags `--mca oob/btl_tcp_if_include ib0` did NOT prevent
 # OpenMPI from attempting to load the `openib` BTL (RDMA), and that
-# attempt hangs indefinitely on this fabric — see diagnostic jobs
-# 212674/212678 (2026-04-22) which isolated this to `MPI_ERR_OTHER` at
-# the first collective whenever the `openib` BTL is in play.  The fix
+# attempt hangs indefinitely on this fabric -- see diagnostic jobs
+# 212674/212678 (2026-04-22) which isolated this to MPI_ERR_OTHER at
+# the first collective whenever the `openib` BTL is in play. The fix
 # (applied below on each mpirun) is an explicit PML/BTL whitelist:
 #     --mca pml ob1 --mca btl self,vader,tcp
-# which uses only local (self), shared-memory (vader), and TCP — never
-# openib — and passes a 90-rank multi-node Barrier in ~3 seconds.
-# Experiment: 09 — MOEA-FIND Pareto → Pywr-DRB → metric bank + legacy
-# satisficing table. Scenario-discovery figures (GBT / logreg multi-panel
-# maps, AUC summaries, legacy single-panel map) are emitted by
-# workflows/07_scenario_discovery/scenario_discovery_plots.py, which reads
-# this script's persisted outputs.
-# Parallelism: MPI for Stages 2-3 (preprocessing + simulation); serial for 1 & 4
+# which uses only local (self), shared-memory (vader), and TCP -- never
+# openib -- and passes a 90-rank multi-node Barrier in ~3 seconds.
 #
-# Usage:
-#   sbatch workflows/06_pywrdrb_reeval/slurm/policy_reeval.slurm <path/to/results.json>
-#
-# Optional environment overrides (set via --export):
-#   SUBSET          path to a JSON list of Pareto indices to process (dev ensembles)
-#   SKIP_GENERATE=1 skip Stage 1 (resume from Stage 2 when Stage 1 output exists)
-#   SKIP_PREP=1     skip Stage 2 (resume from Stage 3 when predicted_inflows_mgd.hdf5 exists)
-#
-# Examples:
-#   # Full production run, all Pareto members
-#   sbatch workflows/06_pywrdrb_reeval/slurm/policy_reeval.slurm \
-#       outputs/exp04_kirsch_single_site/residual_T20_nfe200000_s42_constrained/results.json
-#
-#   # Dev smoke test: 10 Pareto members
-#   sbatch --export=ALL,SUBSET=outputs/data_cache/dev_10.json \
-#       workflows/06_pywrdrb_reeval/slurm/policy_reeval.slurm \
-#       outputs/exp04_kirsch_single_site/residual_T20_nfe200000_s42_constrained/results.json
+# Parallelism: 8 nodes x 20 ntasks-per-node = 160 ranks for stage 3
+# (simulation). Stages 1 + 4 run serially on rank 0. Within the
+# 10-node x 40-core HPC budget. The lower per-node rank density
+# (20 vs 40) is required to avoid OOM during pywrdrb simulation:
+# each rank loads a Pywr-DRB model + per-realization state and at
+# 40 ranks/node memory pressure exceeds Hopper's ~192 GB/node, even
+# under --exclusive (a 5x40-rank run OOM'd in ~4 min on rank 115;
+# the prior 3x30-rank baseline lasted 3.5 h before OOM). Keeping
+# ~9.5 GB headroom per rank is the safe envelope for production NFE.
 
-# shellcheck source=./_common.sh
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
+
+# Bake the Pareto-archive path. To re-evaluate a different stage 04 run,
+# edit this line; do NOT pass arguments via sbatch.
+PARETO_RESULTS="outputs/04_moea_find_single_site/run_moea_find/residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad/results.json"
 
 # Unbuffered stdout so progress prints from long-running loops
 # (e.g. per-realization replay in Stage 1) land in the SLURM log
@@ -55,7 +48,7 @@ export PYTHONUNBUFFERED=1
 # Pin every BLAS/OpenMP backend to a single thread. Stage 1 uses
 # joblib to parallelise Nowak disaggregation across 16 worker
 # processes; without this, each worker's numpy/sklearn internals
-# try to use all 16 cores simultaneously, so 16 workers × 16 threads
+# try to use all 16 cores simultaneously, so 16 workers x 16 threads
 # thrash the CPU scheduler and we see ~1x speedup instead of ~16x.
 export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
@@ -63,48 +56,37 @@ export MKL_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 
-PARETO_RESULTS="${1:?Usage: sbatch 09_drb_policy_reeval.slurm <path/to/results.json>}"
-N_PROCS="${SLURM_NTASKS:-16}"
+N_PROCS="${SLURM_NTASKS:-200}"
 
-# Forward optional SUBSET env var to each stage invocation.
-SUBSET_ARG=()
-if [[ -n "${SUBSET:-}" ]]; then
-    SUBSET_ARG=(--realization-subset-file "${SUBSET}")
-fi
+echo "[06.slurm] Pareto results: ${PARETO_RESULTS}"
+echo "[06.slurm] Processors: ${N_PROCS}"
+echo "[06.slurm] Start: $(date)"
 
-echo "[09.slurm] Pareto results: ${PARETO_RESULTS}"
-echo "[09.slurm] Subset: ${SUBSET:-<full archive>}"
-echo "[09.slurm] Processors: ${N_PROCS}"
-echo "[09.slurm] Start: $(date)"
+# --- Stage 1 (generate) and Stage 2 (prep) outputs persist on disk from
+# the prior successful run (catchment_inflow_mgd.hdf5, gage_flow_mgd.hdf5,
+# predicted_inflows_mgd.hdf5 under pywrdrb_inputs/). Skip both to start
+# directly at simulate. Re-enable by un-commenting if you change the
+# Pareto-archive input or pywrdrb pre-processing settings. ---
+#
+# python "${SLURM_SUBMIT_DIR}/workflows/06_pywrdrb_reeval/policy_reeval.py" \
+#     --pareto-results "${PARETO_RESULTS}" \
+#     --stage generate \
+#     --n-years 20 \
+#     --demand-source constant_max
+#
+# mpirun --oversubscribe -np "${N_PROCS}" \
+#     --mca pml ob1 \
+#     --mca btl self,vader,tcp \
+#     python "${SLURM_SUBMIT_DIR}/workflows/06_pywrdrb_reeval/policy_reeval.py" \
+#         --pareto-results "${PARETO_RESULTS}" \
+#         --stage prep \
+#         --n-years 20 \
+#         --demand-source constant_max \
+#         --use-mpi
 
-# Stage 1 (generate): serial — fits generators, replays DVs
-if [[ "${SKIP_GENERATE:-0}" == "1" ]]; then
-    echo "[09.slurm] Skipping Stage 1 (SKIP_GENERATE=1)"
-else
-    python "${SLURM_SUBMIT_DIR}/workflows/06_pywrdrb_reeval/policy_reeval.py" \
-        --pareto-results "${PARETO_RESULTS}" \
-        --stage generate \
-        --n-years 20 \
-        --demand-source constant_max \
-        "${SUBSET_ARG[@]}"
-fi
-
-# Stages 2-3 (prep + simulate): MPI-parallel
-if [[ "${SKIP_PREP:-0}" == "1" ]]; then
-    echo "[09.slurm] Skipping Stage 2 (SKIP_PREP=1)"
-else
-    mpirun --oversubscribe -np "${N_PROCS}" \
-        --mca pml ob1 \
-        --mca btl self,vader,tcp \
-        python "${SLURM_SUBMIT_DIR}/workflows/06_pywrdrb_reeval/policy_reeval.py" \
-            --pareto-results "${PARETO_RESULTS}" \
-            --stage prep \
-            --n-years 20 \
-            --demand-source constant_max \
-            --use-mpi \
-            "${SUBSET_ARG[@]}"
-fi
-
+# Stage 3 (simulate): MPI-parallel. Per-rank memory pressure is now
+# managed by --exclusive + 5-node allocation (full node memory available
+# per rank), keeping batch_size=5 as the production default.
 mpirun --oversubscribe -np "${N_PROCS}" \
     --mca pml ob1 \
     --mca btl self,vader,tcp \
@@ -114,16 +96,12 @@ mpirun --oversubscribe -np "${N_PROCS}" \
         --n-years 20 \
         --demand-source constant_max \
         --batch-size 5 \
-        --use-mpi \
-        "${SUBSET_ARG[@]}"
+        --use-mpi
 
-# Stage 4 (classify): serial — metric bank + legacy FFMP classification
-# table.  Downstream: run 17_drb_scenario_discovery_plots.slurm for
-# figures (single-panel, multi-panel GBT/logreg, AUC summaries).
+# Stage 4 (classify): serial -- metric bank + legacy FFMP table.
 python "${SLURM_SUBMIT_DIR}/workflows/06_pywrdrb_reeval/policy_reeval.py" \
     --pareto-results "${PARETO_RESULTS}" \
     --stage classify \
-    --n-years 20 \
-    "${SUBSET_ARG[@]}"
+    --n-years 20
 
-echo "[09.slurm] End: $(date)"
+echo "[06.slurm] End: $(date)"

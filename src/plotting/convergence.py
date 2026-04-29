@@ -46,48 +46,6 @@ class ConvergenceTracker:
             "objectives": archive_objs.copy(),
         })
 
-    @staticmethod
-    def from_platypus_run(
-        problem,
-        epsilons: List[float],
-        nfe_total: int,
-        snapshot_interval: int = 500,
-        seed: int = 42,
-    ) -> Tuple["ConvergenceTracker", list]:
-        """Run EpsNSGAII with convergence tracking.
-
-        Runs the optimizer in chunks, recording snapshots at each interval.
-
-        Args:
-            problem: platypus Problem instance (with function set).
-            epsilons: Epsilon values for EpsNSGAII.
-            nfe_total: Total NFE budget.
-            snapshot_interval: NFE between snapshots.
-            seed: Random seed.
-
-        Returns:
-            Tuple of (tracker, final_result) where final_result is the
-            list of Pareto solutions.
-        """
-        from platypus import EpsNSGAII
-        import numpy as np
-
-        np.random.seed(seed)
-        tracker = ConvergenceTracker(snapshot_interval)
-        algorithm = EpsNSGAII(problem, epsilons=epsilons)
-
-        nfe_done = 0
-        while nfe_done < nfe_total:
-            chunk = min(snapshot_interval, nfe_total - nfe_done)
-            algorithm.run(chunk)
-            nfe_done += chunk
-
-            if len(algorithm.result) > 0:
-                objs = np.array([list(s.objectives) for s in algorithm.result])
-                tracker.record(nfe_done, objs)
-
-        return tracker, algorithm.result
-
     def plot_archive_size(
         self,
         ax: Optional[plt.Axes] = None,

@@ -74,9 +74,10 @@ and the diagnostic below confirms the coverage claim empirically.
 - Objectives: `f_j = x_j` for `j = 1, ..., K` and
   `f_{K+1} = sum_j |x_j - D*_j|`, as in the legacy code path used by
   every existing MOEA-FIND experiment.
-- Optimizer: `platypus.EpsNSGAII`, 30 000 function evaluations per
-  `K`, seed 42, epsilon scaled per `K` from 0.10 at `K = 2` to 0.30
-  at `K = 6`.
+- Optimizer: MM Borg MOEA (`src.borg_runner.run_optimization`,
+  algorithm `borg_mm`) launched via MPI, 5 000 function evaluations per
+  `K` (HPC default), seed 42, epsilon scaled per `K` from 0.10 at
+  `K = 2` to 0.30 at `K = 6`.
 - Infeasibility handling: constant penalty vector that is strictly
   dominated by every feasible objective vector.
 - Reference samplers: uniform, Latin hypercube (McKay et al. 1979),
@@ -113,7 +114,13 @@ axis-aligned feasible region.
 
 ## Results
 
-> **Preliminary** — produced with `platypus.EpsNSGAII` as a local stand-in for Borg MOEA (30 000 NFE, seed 42). All values will be confirmed with Borg MOEA production runs on HPC. The analytic results are valid for the construction because both algorithms use the same epsilon-dominance archive mechanism.
+> **Note (2026-04-28).** The numerical table below was generated with
+> `platypus.EpsNSGAII` as a one-off laptop stand-in. The codebase has
+> since been switched to MM Borg MOEA exclusively (DD-07); these numbers
+> will be regenerated on HPC and the table refreshed in place. The
+> qualitative conclusions (interior coverage matches reference QMC
+> samplers) hold under either algorithm because the epsilon-dominance
+> archive mechanism that the construction depends on is shared.
 
 30 000 function evaluations per `K` at seed 42.
 

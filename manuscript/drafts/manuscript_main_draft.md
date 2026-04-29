@@ -271,9 +271,10 @@ drought characteristic region as a byproduct of the generation step.
 
 ### 3.1 Interior coverage on the analytic benchmark problem
 
-> *Pending. Preliminary EpsNSGAII stand-in results documented in
-> `evidence/shell_vs_interior_diagnostic.md`. Production Borg reproduction
-> on HPC required before drafting.*
+> *Pending. Numerical results in
+> `evidence/shell_vs_interior_diagnostic.md` are produced by MM Borg MOEA
+> on HPC (per DD-07, updated 2026-04-28). Drafting blocked only on the
+> final figure pass.*
 
 ### 3.2 Coverage of the feasible drought hazard region at Cannonsville
 

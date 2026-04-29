@@ -16,7 +16,8 @@ is one MOEA-FIND can usefully explore.
 
 Reproducible: deterministic (sliding-block extraction is deterministic),
 seed not used, configuration logged to ``config.json``. Output:
-``outputs/diag_metric_set_historical_blocks/``.
+``outputs/02_calibration/metric_blocks/``. Plotting lives in
+``workflows/02_calibration/plots/metric_blocks.py``.
 
 Usage::
 
@@ -47,13 +48,15 @@ from src.drought_metrics import (  # noqa: E402
 )
 from src.experiment_utils import prepare_data, compute_historical_ssi_chars  # noqa: E402
 from src.historical_blocks import resample_historical_blocks  # noqa: E402
+from src.paths import stage_output_dir  # noqa: E402
 from src.objectives import (  # noqa: E402
     compute_ssi,
     compute_ssi_drought_characteristics,
     flows_to_series,
 )
 
-OUTPUT_SLUG = "diag_metric_set_historical_blocks"
+STAGE = "02_calibration"
+DRIVER = "metric_blocks"
 
 
 def compute_block_chars(
@@ -207,17 +210,12 @@ def main():
     p.add_argument("--ssi", type=int, default=3,
                    choices=[1, 3, 6, 12],
                    help="SSI accumulation period in months.")
-    p.add_argument("--output-dir", type=Path,
-                   default=PROJECT_ROOT / "outputs" / OUTPUT_SLUG)
     p.add_argument("--cache-dir", type=Path,
                    default=PROJECT_ROOT / "outputs" / "data_cache")
     args = p.parse_args()
 
-    out_dir: Path = args.output_dir
-    fig_dir = out_dir / "figures"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    fig_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[diag_metric_set_historical_blocks] output_dir={out_dir}")
+    out_dir = stage_output_dir(STAGE, DRIVER)
+    print(f"[02/metric_blocks] output_dir={out_dir}")
 
     # --- Data ---
     args.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -256,16 +254,10 @@ def main():
     print(f"\n[diag] wrote {out_dir / 'per_preset_summary.csv'}")
     print(preset_summary.to_string(index=False))
 
-    # --- 3D scatter per preset ---
-    print(f"\n[diag] generating 3D scatter figures ...")
-    for preset_name in PRESETS:
-        ms = resolve_metric_set(preset_name)
-        fig_path = fig_dir / f"fig_{preset_name}_3d"
-        plot_metric_set_3d(
-            chars_df, preset_name, ms, fig_path,
-            historical_aggregate=full_hist_chars,
-        )
-        print(f"  wrote {fig_path}.pdf and .png")
+    # Dump full historical chars for the plotting driver to render the
+    # red-star reference point.
+    import pickle
+    (out_dir / "full_hist_chars.pkl").write_bytes(pickle.dumps(full_hist_chars))
 
     # --- Reproducibility: dump config ---
     cfg = {

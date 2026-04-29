@@ -1,31 +1,18 @@
-"""Script 13 — DV-uniformity ablation (manuscript Supporting Information).
+"""Stage 04 / dv_uniformity_ablation -- SI-G arm (compute only).
 
-Runs a single MOEA-FIND experiment under one of two mutually exclusive
-constraint regimes so the two arms can be compared apples-to-apples:
+Runs a single MOEA-FIND experiment under one constraint regime so the
+arms can be compared apples-to-apples by ``dv_uniformity_compare.py``.
 
-    --arm hydrologic   : current 5-constraint plausibility formulation
-                         (loaded from diag_constraint_calibration output).
-    --arm dv_uniform   : single DV-space uniformity constraint with either
-                         L2-star discrepancy or KS statistic
-                         (loaded from diag_dv_uniformity_calibration output).
+Arms:
+    --arm hydrologic   : 5-statistic plausibility formulation
+    --arm dv_uniform   : DV-space uniformity constraint with --statistic
+                         (l2_star or ad).
 
-Both arms share the SAME objectives (DD-11: D_j + Manhattan to anti-ideal),
-anti-ideal placement, DV length, seed, NFE, and algorithm — the only
-difference is which constraint is active during the MOEA loop. Output is
-written under ``outputs/exp13_dv_uniformity_ablation/<arm>/<slug>/`` so the
-companion comparison script (``14_dv_uniformity_compare.py``) can collect
-matched seed pairs.
-
-Expected outcome: the DV-uniform arm will fail to find severe droughts,
-confirming the falsification hypothesis documented in the plan file. That
-result is the SI figure set.
-
-Run locally (small NFE smoke test):
-    python workflows/04_moea_find_single_site/dv_uniformity_ablation.py \\
-        --arm dv_uniform --nfe 200 --seed 42 --algorithm eps_nsga2
-
-Run on HPC (MM Borg, full NFE, array over arms x seeds):
-    sbatch workflows/04_moea_find_single_site/slurm/dv_uniformity_ablation.slurm
+Both arms share objectives (DD-11), anti-ideal placement, DV length,
+NFE, and algorithm. Output written under
+``outputs/04_moea_find_single_site/dv_uniformity_ablation/<arm>/<slug>/``.
+Figures are produced by the paired
+``workflows/04_moea_find_single_site/plots/dv_uniformity_compare.py``.
 """
 
 from __future__ import annotations
@@ -54,8 +41,10 @@ from src.experiment_utils import (  # noqa: E402
 from src.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
 from src.constraints import ConstraintConfig  # noqa: E402
 from src.constraints_dv import DVUniformityConfig, VALID_STATISTICS  # noqa: E402
+from src.paths import stage_output_dir  # noqa: E402
 
-OUTPUT_SLUG = "exp13_dv_uniformity_ablation"
+STAGE = "04_moea_find_single_site"
+DRIVER = "dv_uniformity_ablation"
 VALID_ARMS = ("hydrologic", "dv_uniform")
 
 
@@ -74,7 +63,7 @@ def main():
                    choices=[1, 3, 6, 12])
     p.add_argument("--mode", choices=["index", "residual"], default=cfg.dv_mode)
     p.add_argument("--algorithm", default=cfg.algorithm,
-                   choices=["borg_mm", "borg_serial", "eps_nsga2"])
+                   choices=["borg_mm", "borg_serial"])
     p.add_argument("--constraints-json", type=Path, default=cfg.constraints_json,
                    help="Hydrologic calibrated_tolerances.json (hydrologic arm).")
     p.add_argument("--dv-uniformity-json", type=Path,
@@ -85,15 +74,9 @@ def main():
     p.add_argument("--anti-ideal-reference", type=Path,
                    default=cfg.anti_ideal_reference_json,
                    help="Prior results.json whose Pareto max drives D* "
-                        "for non-cyclic objectives. Cyclic metrics remain "
-                        "at 12*headroom.")
+                        "for non-cyclic objectives.")
     p.add_argument("--n-islands", type=int, default=cfg.n_islands)
     p.add_argument("--checkpoint-freq", type=int, default=cfg.checkpoint_freq)
-    p.add_argument("--plot", action="store_true",
-                   help="Render per-arm diagnostic figures locally "
-                        "(comparison figures are built by script 14).")
-    p.add_argument("--output-dir", type=Path,
-                   default=PROJECT_ROOT / "outputs" / OUTPUT_SLUG)
     args = p.parse_args()
 
     # --- Load the arm-appropriate constraint ---
@@ -103,14 +86,14 @@ def main():
         hydrologic_cfg = load_hydrologic_constraints(
             args.constraints_json, args.site_label, args.n_years,
         )
-    else:  # dv_uniform
+    else:
         dv_cfg = load_dv_uniformity_constraints(
             args.dv_uniformity_json, args.site_label, args.n_years,
             args.statistic,
         )
     constrained = hydrologic_cfg is not None or dv_cfg is not None
 
-    # --- Output directory: arm first, then the usual variant slug ---
+    # --- Output directory: arm subdir then variant slug ---
     extra = {"cm": args.arm}
     if args.arm == "dv_uniform":
         extra["st"] = args.statistic
@@ -122,9 +105,8 @@ def main():
         constrained=constrained,
         extra=extra,
     )
-    out = args.output_dir / args.arm / slug
-    out.mkdir(parents=True, exist_ok=True)
-    print(f"[13] arm={args.arm} slug={slug}")
+    out = stage_output_dir(STAGE, DRIVER, f"{args.arm}/{slug}")
+    print(f"[04/dv_uniformity_ablation] arm={args.arm} slug={slug}")
 
     # --- Data ---
     cache_dir = PROJECT_ROOT / "outputs" / "data_cache"
@@ -141,17 +123,16 @@ def main():
         ref = Path(args.anti_ideal_reference)
         if ref.exists():
             feasible_maxes = extract_pareto_maxes(ref, objective_keys)
-            print(f"[13] anti-ideal reference from {ref}")
-            print(f"     Pareto maxes: {feasible_maxes}")
+            print(f"[04/dv_uniformity_ablation] anti-ideal reference from {ref}")
         else:
-            print(f"[13] WARNING: --anti-ideal-reference {ref} not found; "
-                  f"falling back to historical-max D*.")
+            print(f"[04/dv_uniformity_ablation] WARNING: --anti-ideal-reference "
+                  f"{ref} not found; falling back to historical-max D*.")
 
     anti_ideal = compute_ssi_anti_ideal(
         hist_chars, objective_keys, headroom=cfg.anti_ideal_headroom,
         feasible_maxes=feasible_maxes,
     )
-    print(f"[13] anti-ideal: {anti_ideal}")
+    print(f"[04/dv_uniformity_ablation] anti-ideal: {anti_ideal}")
 
     # --- Generator ---
     kirsch_gen = build_kirsch_generator(monthly_2d)
@@ -161,14 +142,14 @@ def main():
 
     # --- Sanity: n_dvs vs calibration ---
     if dv_cfg is not None and generator.n_dvs != dv_cfg.n_dvs:
-        print(f"[13] WARNING: generator n_dvs={generator.n_dvs} differs from "
-              f"calibrated dv_cfg.n_dvs={dv_cfg.n_dvs}. "
-              f"Rebuild the calibration with matching --T / --dv-mode, "
-              f"or compute_dv_constraint will raise at evaluation time.")
+        print(f"[04/dv_uniformity_ablation] WARNING: generator n_dvs="
+              f"{generator.n_dvs} differs from calibrated dv_cfg.n_dvs="
+              f"{dv_cfg.n_dvs}.")
 
     # --- Config dump ---
     (out / "config.json").write_text(json.dumps({
-        "script": "13_dv_uniformity_ablation.py",
+        "stage": STAGE,
+        "driver": DRIVER,
         "variant": slug,
         "arm": args.arm,
         "statistic": args.statistic if args.arm == "dv_uniform" else None,
@@ -212,9 +193,9 @@ def main():
     )
 
     n_pareto = result.get("n_pareto", 0)
-    print(f"[13] arm={args.arm} Pareto: {n_pareto} solutions")
+    print(f"[04/dv_uniformity_ablation] arm={args.arm} Pareto: {n_pareto} solutions")
 
-    # Only the MM Borg master rank has Pareto solutions; workers must not
+    # MM Borg: only master rank holds Pareto solutions; workers must not
     # overwrite master output files.
     if n_pareto > 0:
         (out / "results.json").write_text(
@@ -228,46 +209,8 @@ def main():
         )
         print(f"     wrote {out / 'pareto.npz'}")
     else:
-        print(f"[13] arm={args.arm}: 0 Pareto solutions; skipping output "
-              f"writes (either MM Borg worker rank or empty archive).")
-
-    # Per-arm diagnostic plots are optional here; the comparison figures
-    # for the SI are produced by workflows/04_moea_find_single_site/dv_uniformity_compare.py.
-    if args.plot and n_pareto > 0:
-        try:
-            import matplotlib
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
-            from src.plotting.drought_space import plot_scatter_with_marginals
-            from src.historical_blocks import compute_historical_block_chars
-
-            fig_dir = out / "figures"
-            fig_dir.mkdir(parents=True, exist_ok=True)
-
-            dm = np.array(result["drought_metrics"])
-            hist_point = (
-                float(hist_chars["mean_duration"]),
-                float(hist_chars["mean_avg_severity"]),
-            )
-            hist_block_chars = compute_historical_block_chars(
-                monthly_1d, T_years=args.n_years, ssi_calc=ssi_calc,
-                objective_keys=objective_keys, stride=1,
-            )
-            fig_a = plot_scatter_with_marginals(
-                dm[:, :2],
-                title=f"{args.arm} Pareto vs historical blocks",
-                historical_point=hist_point,
-                anti_ideal=anti_ideal[:2],
-                historical_cloud=hist_block_chars[:, :2],
-                objective_labels=(
-                    "Mean duration (months)",
-                    "Mean avg. severity",
-                ),
-            )
-            fig_a.savefig(fig_dir / "drought_space.pdf", dpi=200)
-            plt.close(fig_a)
-        except ImportError as exc:
-            print(f"[13] skipping per-arm plots (import error: {exc})")
+        print(f"[04/dv_uniformity_ablation] arm={args.arm}: 0 Pareto solutions; "
+              f"skipping output writes.")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ functions used by both proof-of-concept and kirsch_ensemble experiment scripts.
 The ``run_experiment`` function is the primary entry point. It:
   1. Builds an evaluate callback that maps DVs -> (objectives, constraints).
   2. Delegates to :func:`src.borg_runner.run_optimization` for algorithm dispatch
-     (MM Borg, serial Borg, or EpsNSGAII dev fallback).
+     (MM Borg by default; serial Borg available as a single-process fallback).
   3. Post-processes the result into a JSON-serialisable dict.
 """
 
@@ -273,7 +273,7 @@ def run_experiment(
     n_years_out: int,
     nfe: int,
     seed: int,
-    algorithm: str = "eps_nsga2",
+    algorithm: str = "borg_mm",
     constraint_cfg: Optional[ConstraintConfig] = None,
     dv_constraint_cfg: Optional[DVUniformityConfig] = None,
     output_dir: Optional[Path] = None,
@@ -297,8 +297,8 @@ def run_experiment(
         n_years_out: Synthetic trace length in years.
         nfe: Number of function evaluations.
         seed: Random seed.
-        algorithm: Backend name (``"borg_mm"``, ``"borg_serial"``,
-            ``"eps_nsga2"``). Overridden by ``MOEA_FIND_ALGORITHM`` env var.
+        algorithm: Backend name (``"borg_mm"`` for production, ``"borg_serial"``
+            for single-process runs). Overridden by ``MOEA_FIND_ALGORITHM`` env var.
         constraint_cfg: Optional :class:`ConstraintConfig`. If None,
             hydrologic constraints are disabled.
         dv_constraint_cfg: Optional :class:`DVUniformityConfig` for the

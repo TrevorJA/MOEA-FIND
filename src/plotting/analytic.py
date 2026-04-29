@@ -399,17 +399,17 @@ def fig3_manhattan_construction(
     diag_root : path-like, optional
         Directory containing k2/samples.npz and k2/results.json from
         ``workflows/01_analytic_validation/dimension_sweep.py``. Defaults to
-        ``outputs/diag_shell_vs_interior`` relative to the project root.
+        ``outputs/01_analytic_validation/dimension_sweep`` relative to the project root.
     """
     from pathlib import Path
 
     apply_style()
 
-    # --- Load K=2 Borg + LHS samples from the shell-interior diagnostic ---
+    # --- Load K=2 Borg + LHS samples from the dimension-sweep compute ---
     if diag_root is None:
         here = Path(__file__).resolve()
         diag_root = (
-            here.parents[2] / "outputs" / "diag_shell_vs_interior"
+            here.parents[2] / "outputs" / "01_analytic_validation" / "dimension_sweep"
         )
     diag_root = Path(diag_root)
     k2_dir = diag_root / "k2"
@@ -552,7 +552,7 @@ def fig4_dimension_sweep(
     ----------
     diag_root : path-like
         Directory containing k{2..6}/results.json and samples.npz, e.g.
-        ``outputs/diag_shell_vs_interior``.
+        ``outputs/01_analytic_validation/dimension_sweep``.
     """
     apply_style()
     data = _load_dimension_sweep(diag_root)

@@ -1,6 +1,35 @@
-ANALYTIC_ARRAY=195350
-ANALYTIC_SUMMARY=195351
-EXP05=195339
-EXP04=195359
-EXP11=195360
-FIG10=195361
+# Full workflow submission — 2026-04-28
+# Submit: all waves with SLURM dependencies
+
+# Wave 1 — Analytics (standalone)
+analytic_2d=216855
+analytic_3d=216856
+dimension_sweep=216857        # array 2-6%3
+eps_nfe_sweep=216858          # array 0-89%2
+
+# Wave 1 — Calibrations + library (standalone)
+constraint_calibration=216859
+dv_uniformity_calibration_residual=216860
+dv_uniformity_calibration_index=216861
+wrapper_fidelity=216862
+wrapper_geometry=216863
+build_library=216864
+
+# Wave 2 — After calibrations/library
+subsample_baseline=216865     # dep: 216864
+run_moea_find=216866          # dep: 216860
+dv_uniformity_ablation=216867 # dep: 216859:216860, array 0-8%1
+wrapper_mode_ablation=216868  # dep: 216861:216866, array 0-5%1
+
+# Wave 3 — Post-MOEA
+dv_uniformity_compare=216869  # dep: 216867
+wrapper_mode_compare=216870   # dep: 216868
+baseline_comparison=216871    # dep: 216866:216865
+policy_reeval=216872          # dep: 216866
+verify_drought_coverage=216873 # dep: 216866
+
+# Wave 4 — Post-reeval
+scenario_discovery=216874     # dep: 216872
+
+# Wave 5 — Final
+make_figures=216875           # dep: all upstream

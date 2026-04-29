@@ -1,30 +1,16 @@
-"""Script 16 — Kirsch wrapper-mode comparison and SI figure set.
+"""Kirsch wrapper-mode comparison + SI figure set (SI-F).
 
-Loads every ``results.json`` written by ``15_wrapper_mode_ablation.py`` under
-``outputs/exp15_wrapper_mode_ablation/{index,residual}/...``, pools the Pareto
-archive across seeds within each mode, and renders the SI figures:
+Loads every ``results.json`` written by ``wrapper_mode_ablation.py`` under
+``outputs/04_moea_find_single_site/wrapper_mode_ablation/{index,residual}/...``,
+pools the Pareto archive across seeds within each mode, and renders the SI
+figures (drought-space Pareto 2D/3D, Manhattan distribution, hydrology
+panels, per-trace stat boxplots, DV distributions, tail-mass comparison)
+into ``figures/04_moea_find_single_site/wrapper_mode_compare/``.
 
-    figSI_wrapper_pareto_2d.pdf         — side-by-side drought-space Pareto
-    figSI_wrapper_pareto_3d.pdf         — same in 3D (if >=3 objectives)
-    figSI_wrapper_manhattan_dist.pdf    — Manhattan-objective distribution
-    figSI_wrapper_hydrology_panels.pdf  — ACF / FDC / seasonal panel
-    figSI_wrapper_per_trace_stats.pdf   — per-trace stat boxplots
-    figSI_wrapper_dv_distributions.pdf  — DV QQ + histogram per mode
-    figSI_wrapper_dv_tail_mass.pdf      — DV tail-mass comparison
+Also writes ``wrapper_comparison_summary.json`` into
+``outputs/04_moea_find_single_site/wrapper_mode_compare/``.
 
-Also writes ``wrapper_comparison_summary.json`` with the comparison checklist
-values (max-duration ratio, max-severity ratio, median Manhattan distance,
-hyperplane identity, infeasibility rates) so the check is machine-readable.
-
-Both modes must produce at least one Pareto archive under
-``outputs/exp15_wrapper_mode_ablation/`` or the script warns and emits
-whatever figures are possible.
-
-Run serially (no MPI, no SLURM required for local execution):
-    python workflows/04_moea_find_single_site/wrapper_mode_compare.py
-
-Or via SLURM:
-    sbatch workflows/04_moea_find_single_site/slurm/wrapper_mode_compare.slurm
+Plotting only -- never re-runs MOEA.
 """
 
 from __future__ import annotations
@@ -37,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.experiment_utils import (  # noqa: E402
@@ -46,9 +32,13 @@ from src.experiment_utils import (  # noqa: E402
     compute_ssi_anti_ideal,
 )
 from src.experiment_config import DEFAULT_EXPERIMENT  # noqa: E402
+from src.paths import stage_figure_dir, stage_output_dir  # noqa: E402
 
-INPUT_SLUG = "exp15_wrapper_mode_ablation"
-OUTPUT_SLUG = "exp16_wrapper_mode_compare"
+STAGE = "04_moea_find_single_site"
+DRIVER = "wrapper_mode_compare"
+INPUT_DRIVER = "wrapper_mode_ablation"
+KIRSCH_LIBRARY_STAGE = "03_kirsch_library"
+KIRSCH_LIBRARY_DRIVER = "build_library"
 
 DEFAULT_ARMS: Tuple[str, ...] = ("index", "residual")
 
@@ -138,9 +128,7 @@ def _compute_per_trace_stats(
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--input-dir", type=Path,
-                   default=PROJECT_ROOT / "outputs" / INPUT_SLUG)
-    p.add_argument("--output-dir", type=Path,
-                   default=PROJECT_ROOT / "outputs" / OUTPUT_SLUG)
+                   default=stage_output_dir(STAGE, INPUT_DRIVER, create=False))
     p.add_argument("--max-dv-rows-per-arm", type=int, default=200,
                    help="Cap on number of Pareto-member DV vectors sampled "
                         "for the QQ/histogram figure.")
@@ -149,26 +137,23 @@ def main():
                         "threshold. Use to exclude smoke-test runs from the "
                         "production comparison pool.")
     p.add_argument("--arms", nargs="+", default=list(DEFAULT_ARMS),
-                   help="Which wrapper modes to compare. Options: "
-                        "index, residual. Default is both.")
+                   help="Which wrapper modes to compare. Options: index, residual.")
     p.add_argument("--kirsch-library-dir", type=Path,
-                   default=PROJECT_ROOT / "outputs" / "exp05_kirsch_library",
-                   help="Directory containing exp05 Kirsch library "
+                   default=stage_output_dir(KIRSCH_LIBRARY_STAGE,
+                                            KIRSCH_LIBRARY_DRIVER, create=False),
+                   help="Directory containing the Kirsch library "
                         "characteristics.npz, used for the reference panel.")
     args = p.parse_args()
 
     unknown = [a for a in args.arms if a not in _LOGICAL_ARM_SPEC]
     if unknown:
         raise SystemExit(
-            f"Unknown arm(s): {unknown}. "
-            f"Valid: {list(_LOGICAL_ARM_SPEC)}"
+            f"Unknown arm(s): {unknown}. Valid: {list(_LOGICAL_ARM_SPEC)}"
         )
     ARMS: Tuple[str, ...] = tuple(args.arms)
 
-    out_dir = args.output_dir
-    fig_dir = out_dir / "figures"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    fig_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = stage_output_dir(STAGE, DRIVER)
+    fig_dir = stage_figure_dir(STAGE, DRIVER)
 
     # ------------------------------------------------------------------
     # Load per-arm archives
@@ -278,7 +263,7 @@ def main():
     # Median T-block point for plotting (T-block scale, not full-record).
     hist_block_median = np.median(hist_block_chars, axis=0)
 
-    # Kirsch library reference cloud from exp05 (random unconstrained traces)
+    # Kirsch library reference cloud from stage 03 (random unconstrained traces)
     kirsch_cloud_2d: Optional[np.ndarray] = None
     kirsch_cloud_3d: Optional[np.ndarray] = None
     kirsch_lib_path = args.kirsch_library_dir / "characteristics.npz"

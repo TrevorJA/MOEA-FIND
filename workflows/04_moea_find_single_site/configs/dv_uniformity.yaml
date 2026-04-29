@@ -15,8 +15,8 @@ metric_set: primary
 # Both arms are pre-staged here; pick one via --constraint-mode.
 constraint_mode: dv_uniform
 statistic: ad
-dv_uniformity_json: outputs/diag_dv_uniformity_calibration/calibrated_dv_tolerances.json
-constraints_json: outputs/diag_constraint_calibration/calibrated_tolerances.json
+dv_uniformity_json: outputs/02_calibration/dv_uniformity_calibration/residual/calibrated_dv_tolerances.json
+constraints_json: outputs/02_calibration/constraint_calibration/calibrated_tolerances.json
 
 algorithm: borg_mm
 nfe: 200000

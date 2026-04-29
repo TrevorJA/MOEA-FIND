@@ -1,41 +1,24 @@
-"""Script 04 — Single-site Kirsch MOEA-FIND (manuscript Fig 5-6).
+"""Stage 04 / run_moea_find -- single-site Kirsch MOEA-FIND (Figs 5-6).
 
-Couples Borg MOEA (or EpsNSGAII dev fallback) to the validated SynHydro
-Kirsch-Nowak generator via KirschBorgWrapper. Supports both DV injection
-modes (index, residual), SSI-based drought objectives, and two constraint
-regimes:
+Couples MM Borg MOEA to the validated
+SynHydro Kirsch-Nowak generator via :class:`KirschBorgWrapper`. Writes
+only numerical artifacts; figures are produced by the paired plotting
+driver ``workflows/04_moea_find_single_site/plots/run_moea_find.py``.
 
+Outputs under ``outputs/04_moea_find_single_site/run_moea_find/<slug>/``:
+    config.json
+    results.json
+    pareto.npz
+    historical_block_chars.npz   (per-block historical drought-chars)
+    historical_blocks.npz        (resampled historical 1d/2d blocks)
+
+Constraint regimes:
     --constraint-mode dv_uniform  (production default)
-        A single DV-space uniformity constraint using the Anderson-Darling
-        statistic. Calibrated via bootstrap U[0,1] draws so the tolerance
-        allows any configuration reachable from a uniform DV distribution.
-        Chosen over the hydrologic 5-constraint set because it yields
-        comparable drought-space coverage with tighter, more interpretable
-        constraint geometry (see design_decisions.md §DD-13).
-
-    --constraint-mode hydrologic  (retained for SI ablation comparison)
-        Five-statistic plausibility formulation (annual mean, annual CV,
-        lag-1 AC, non-drought mean, seasonal cycle) calibrated against
-        historical Cannonsville flows. Used in the exp13/14 ablation.
-
-    --constraint-mode none
-        No constraints. Not used in any production or SI run.
-
-Algorithm selection order:
-    1. ``--algorithm`` CLI arg
-    2. ``MOEA_FIND_ALGORITHM`` env var  (set by slurm scripts)
-    3. Default: ``eps_nsga2`` (safe for local testing)
-
-Run locally (serial EpsNSGAII, unconstrained, 20 000 NFE):
-    python workflows/04_moea_find_single_site/run_moea_find.py --nfe 20000 \\
-        --constraint-mode none --plot
-
-Run with AD constraint (matches production):
-    python workflows/04_moea_find_single_site/run_moea_find.py --nfe 20000 \\
-        --constraint-mode dv_uniform --statistic ad
-
-Run on HPC (MM Borg via MPI, AD constraint, 200 000 NFE):
-    sbatch --export=ALL,BORG_NFE=200000 workflows/04_moea_find_single_site/slurm/run_moea_find.slurm
+        Single DV-space uniformity constraint, Anderson-Darling statistic.
+        Calibration JSON path: outputs/02_calibration/dv_uniformity_calibration/<mode>/calibrated_dv_tolerances.json
+    --constraint-mode hydrologic  (SI ablation comparison)
+        Five-statistic plausibility formulation.
+    --constraint-mode none        (development only)
 """
 
 from __future__ import annotations
@@ -70,12 +53,14 @@ from src.drought_metrics import (  # noqa: E402
     metric_names,
     resolve_metric_set,
 )
+from src.paths import stage_output_dir  # noqa: E402
 
-OUTPUT_SLUG = "exp04_kirsch_single_site"
+STAGE = "04_moea_find_single_site"
+DRIVER = "run_moea_find"
 
 
 _YAML_TO_CLI = {
-    # YAML key → argparse dest. Two-stage parsing so --config loads YAML
+    # YAML key -> argparse dest. Two-stage parsing so --config loads YAML
     # values into the parser defaults, then a second parse lets CLI flags
     # override.
     "nfe": "nfe",
@@ -98,11 +83,7 @@ _YAML_TO_CLI = {
 
 
 def _load_yaml_config(config_path: Path) -> dict:
-    """Load a YAML config, returning argparse-compatible defaults.
-
-    Unknown keys are reported and ignored so a typo in the YAML does
-    not silently produce a misconfigured run.
-    """
+    """Load a YAML config, returning argparse-compatible defaults."""
     import yaml
 
     raw = yaml.safe_load(Path(config_path).read_text()) or {}
@@ -113,14 +94,13 @@ def _load_yaml_config(config_path: Path) -> dict:
         if k in _YAML_TO_CLI:
             overrides[_YAML_TO_CLI[k]] = v
         else:
-            print(f"[run_moea_find] WARN: unknown YAML key {k!r} in "
+            print(f"[04/run_moea_find] WARN: unknown YAML key {k!r} in "
                   f"{config_path}; ignored")
     return overrides
 
 
 def main():
     cfg = DEFAULT_EXPERIMENT
-    # Pre-parse just --config so we can use YAML values as defaults below.
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--config", type=Path, default=None,
                      help="YAML preset under workflows/04_moea_find_single_site/configs/.")
@@ -129,8 +109,6 @@ def main():
 
     p = argparse.ArgumentParser(parents=[pre],
                                 description=__doc__.splitlines()[0])
-    # CLI args default to the centralized ExperimentConfig (or to YAML
-    # values if --config is given). CLI flags still override either.
     p.add_argument("--nfe", type=int, default=cfg.nfe)
     p.add_argument("--n-years", type=int, default=cfg.n_years_out)
     p.add_argument("--seed", type=int, default=cfg.seed)
@@ -138,8 +116,8 @@ def main():
                    choices=[1, 3, 6, 12])
     p.add_argument("--mode", choices=["index", "residual"], default=cfg.dv_mode)
     p.add_argument("--algorithm", default=cfg.algorithm,
-                   choices=["borg_mm", "borg_serial", "eps_nsga2"],
-                   help="MOEA backend. Overridden by MOEA_FIND_ALGORITHM env var.")
+                   choices=["borg_mm", "borg_serial"],
+                   help="Borg backend. Overridden by MOEA_FIND_ALGORITHM env var.")
     p.add_argument("--constraint-mode",
                    choices=["dv_uniform", "hydrologic", "none"],
                    default=cfg.constraint_mode,
@@ -154,9 +132,7 @@ def main():
     p.add_argument("--anti-ideal-reference", type=Path,
                    default=cfg.anti_ideal_reference_json,
                    help="Path to a prior results.json whose Pareto max "
-                        "drives D* placement for NON-cyclic objectives. "
-                        "Cyclic metrics still use 12*headroom. If unset, "
-                        "D* falls back to historical_max*headroom.")
+                        "drives D* placement for non-cyclic objectives.")
     p.add_argument("--site-label", default=cfg.site_label)
     p.add_argument(
         "--metric-set", default=cfg.metric_set,
@@ -171,14 +147,11 @@ def main():
     p.add_argument("--checkpoint-freq", type=int, default=cfg.checkpoint_freq)
     p.add_argument("--old-checkpoint", type=Path, default=None,
                    help="Path to a checkpoint file to resume from.")
-    p.add_argument("--plot", action="store_true")
-    p.add_argument("--output-dir", type=Path,
-                   default=PROJECT_ROOT / "outputs" / OUTPUT_SLUG)
     if yaml_defaults:
         p.set_defaults(**yaml_defaults)
     args = p.parse_args()
 
-    # --- Constraints (load early — needed for variant slug) ---
+    # --- Constraints (load early -- needed for variant slug) ---
     constraint_cfg = None
     dv_constraint_cfg = None
     if args.constraint_mode == "dv_uniform":
@@ -209,9 +182,8 @@ def main():
         constrained=constrained,
         extra=slug_extra if slug_extra else None,
     )
-    out = args.output_dir / slug
-    out.mkdir(parents=True, exist_ok=True)
-    print(f"[04] variant: {slug}")
+    out = stage_output_dir(STAGE, DRIVER, slug)
+    print(f"[04/run_moea_find] variant: {slug}")
 
     # --- Data ---
     cache_dir = PROJECT_ROOT / "outputs" / "data_cache"
@@ -224,8 +196,6 @@ def main():
     ssi_hist, ssi_calc, hist_chars = compute_historical_ssi_chars(
         monthly_1d, args.ssi
     )
-    # Augment historical chars with the trace-level extras (Q10 flow,
-    # time-in-drought) so metric extractors that read those keys work.
     from src.objectives import compute_ssi_drought_characteristics
     hist_chars = compute_ssi_drought_characteristics(
         ssi_hist, monthly_flows=monthly_1d
@@ -235,11 +205,11 @@ def main():
         ref = Path(args.anti_ideal_reference)
         if ref.exists():
             feasible_maxes = extract_pareto_maxes(ref, metric_set)
-            print(f"[04] anti-ideal reference from {ref}")
+            print(f"[04/run_moea_find] anti-ideal reference from {ref}")
             print(f"     Pareto maxes: {feasible_maxes}")
         else:
-            print(f"[04] WARNING: --anti-ideal-reference {ref} not found; "
-                  f"falling back to historical-max D*.")
+            print(f"[04/run_moea_find] WARNING: --anti-ideal-reference {ref} "
+                  f"not found; falling back to historical-max D*.")
 
     anti_ideal = compute_ssi_anti_ideal(
         hist_chars,
@@ -247,11 +217,12 @@ def main():
         headroom=cfg.anti_ideal_headroom,
         feasible_maxes=feasible_maxes,
     )
-    print(f"[04] historical SSI-{args.ssi}: n={hist_chars['n_events']}")
+    print(f"[04/run_moea_find] historical SSI-{args.ssi}: "
+          f"n={hist_chars['n_events']}")
     for m in metric_set:
         print(f"     {m.label}: {m.extract(hist_chars):.4g} ({m.units})")
-    print(f"[04] metric set: {args.metric_set} → {objective_keys}")
-    print(f"[04] anti-ideal: {anti_ideal}")
+    print(f"[04/run_moea_find] metric set: {args.metric_set} -> {objective_keys}")
+    print(f"[04/run_moea_find] anti-ideal: {anti_ideal}")
 
     # --- Generator ---
     kirsch_gen = build_kirsch_generator(monthly_2d)
@@ -261,7 +232,8 @@ def main():
 
     # --- Config dump ---
     (out / "config.json").write_text(json.dumps({
-        "script": "04_kirsch_single_site.py",
+        "stage": STAGE,
+        "driver": DRIVER,
         "variant": slug,
         "algorithm": args.algorithm,
         "nfe": args.nfe,
@@ -306,10 +278,10 @@ def main():
         **algo_kwargs,
     )
 
-    print(f"[04] Pareto: {result.get('n_pareto', 0)} solutions")
+    print(f"[04/run_moea_find] Pareto: {result.get('n_pareto', 0)} solutions")
 
-    # Under MM Borg MPI, only the master rank has Pareto solutions.
-    # Workers report 0 and must NOT overwrite the master's output files.
+    # Under MM Borg MPI only the master rank holds Pareto solutions; workers
+    # report 0 and must NOT overwrite the master's output files.
     if result.get("n_pareto", 0) > 0:
         (out / "results.json").write_text(
             json.dumps(result, indent=2, default=str)
@@ -322,148 +294,42 @@ def main():
             objs=np.array(result["drought_metrics"]),
         )
         print(f"     wrote {out / 'pareto.npz'}")
+
+        # Cache the historical block characteristics + raw historical
+        # blocks alongside the Pareto archive so the plotting driver can
+        # render Figs 5/6 without re-doing the historical-block compute.
+        from src.historical_blocks import (
+            compute_historical_block_chars,
+            resample_historical_blocks,
+            resample_historical_blocks_2d,
+        )
+        hist_block_chars = compute_historical_block_chars(
+            monthly_1d, T_years=args.n_years, ssi_calc=ssi_calc,
+            objective_keys=objective_keys, stride=1,
+        )
+        np.savez(
+            out / "historical_block_chars.npz",
+            chars=hist_block_chars,
+            objective_keys=np.array(list(objective_keys)),
+        )
+        hist_blocks_1d = resample_historical_blocks(
+            monthly_1d, T_years=args.n_years, stride=1,
+        )
+        hist_blocks_2d = resample_historical_blocks_2d(
+            monthly_2d, T_years=args.n_years, stride=1,
+        )
+        np.savez(
+            out / "historical_blocks.npz",
+            blocks_1d=np.array(hist_blocks_1d),
+            blocks_2d=np.array(hist_blocks_2d),
+            anti_ideal=anti_ideal,
+        )
+        print(f"     wrote {out / 'historical_block_chars.npz'} and "
+              f"{out / 'historical_blocks.npz'}")
     else:
-        print(f"[04] WARNING: 0 Pareto solutions with {args.nfe} NFE "
-              f"and {generator.n_dvs} DVs. Skipping output writes "
-              f"(worker rank under MM Borg MPI, or no solutions found).")
-
-    # --- Plots (saved to variant directory, not global figures/) ---
-    if args.plot:
-        try:
-            import matplotlib
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
-            from src.plotting.drought_space import (
-                plot_scatter_with_marginals,
-                plot_drought_space_3d,
-            )
-            from src.plotting.trace_diagnostics import (
-                plot_autocorrelation_comparison,
-                plot_flow_duration_curve,
-                plot_hydrology_panels,
-                plot_seasonal_cycle_comparison,
-            )
-
-            fig_dir = out / "figures"
-            fig_dir.mkdir(parents=True, exist_ok=True)
-
-            pareto_chars = result.get("pareto_chars", [])
-            if pareto_chars:
-                dm = np.array(result["drought_metrics"])
-                axis_labels = tuple(
-                    f"{m.label} ({m.units})" for m in metric_set
-                )
-                hist_point = tuple(
-                    float(m.extract(hist_chars)) for m in metric_set[:2]
-                )
-                # Compute per-block historical drought characteristics
-                # using the SAME prefitted SSI calculator the MOEA used,
-                # so the historical cloud is directly comparable to the
-                # Pareto archive in drought-characteristic space.
-                from src.historical_blocks import compute_historical_block_chars
-                hist_block_chars = compute_historical_block_chars(
-                    monthly_1d,
-                    T_years=args.n_years,
-                    ssi_calc=ssi_calc,
-                    objective_keys=objective_keys,
-                    stride=1,
-                )
-                print(f"[04] historical block drought-chars: "
-                      f"{hist_block_chars.shape[0]} blocks, "
-                      f"{objective_keys[0]} ["
-                      f"{hist_block_chars[:, 0].min():.2f}, "
-                      f"{hist_block_chars[:, 0].max():.2f}]")
-                fig_a = plot_scatter_with_marginals(
-                    dm[:, :2],
-                    title=f"Kirsch ({args.mode}) Pareto vs historical blocks",
-                    historical_point=hist_point,
-                    anti_ideal=anti_ideal[:2],
-                    historical_cloud=hist_block_chars[:, :2],
-                    objective_labels=axis_labels[:2],
-                )
-                fig_a.savefig(fig_dir / "fig05_drought_space.pdf", dpi=300)
-                plt.close(fig_a)
-                print(f"[04] wrote {fig_dir / 'fig05_drought_space.pdf'}")
-
-                # Stash the block chars for downstream / 3D plotting.
-                np.savez(out / "historical_block_chars.npz",
-                         chars=hist_block_chars,
-                         objective_keys=np.array(list(objective_keys)))
-
-                # 3D drought-space scatter (if three objectives were used).
-                if dm.shape[1] >= 3 and len(metric_set) >= 3:
-                    hist_point_3d = np.array([
-                        float(m.extract(hist_chars)) for m in metric_set[:3]
-                    ])
-                    fig_3d = plot_drought_space_3d(
-                        dm[:, :3],
-                        anti_ideal=anti_ideal[:3],
-                        objective_labels=axis_labels[:3],
-                        historical_point=hist_point_3d,
-                        historical_cloud=hist_block_chars[:, :3],
-                        title=(
-                            f"Kirsch ({args.mode}) Pareto — "
-                            f"NFE={args.nfe}, n={dm.shape[0]}"
-                        ),
-                    )
-                    fig_3d.savefig(fig_dir / "fig05_drought_space_3d.pdf", dpi=200,
-                                    bbox_inches="tight")
-                    fig_3d.savefig(fig_dir / "fig05_drought_space_3d.png", dpi=200,
-                                    bbox_inches="tight")
-                    plt.close(fig_3d)
-                    print(f"[04] wrote {fig_dir / 'fig05_drought_space_3d.pdf'}")
-
-            pareto_traces_1d = result.get("pareto_traces_1d", [])
-            pareto_traces_2d = result.get("pareto_traces_2d", [])
-            if pareto_traces_1d:
-                traces_1d = [np.array(t) for t in pareto_traces_1d]
-                traces_2d = [np.array(t) for t in pareto_traces_2d]
-
-                # Build historical block ensemble at the same length as
-                # the synthetic traces. This is the fair comparator for
-                # FDC/ACF/seasonal diagnostics.
-                from src.historical_blocks import (
-                    resample_historical_blocks,
-                    resample_historical_blocks_2d,
-                )
-                hist_blocks_1d = resample_historical_blocks(
-                    monthly_1d, T_years=args.n_years, stride=1,
-                )
-                hist_blocks_2d = resample_historical_blocks_2d(
-                    monthly_2d, T_years=args.n_years, stride=1,
-                )
-                print(f"[04] historical blocks: "
-                      f"{len(hist_blocks_1d)} overlapping {args.n_years}-yr blocks")
-
-                fig_acf, _ = plot_autocorrelation_comparison(
-                    traces_1d, hist_blocks_1d,
-                )
-                fig_acf.savefig(fig_dir / "fig06a_acf.pdf", dpi=300)
-                plt.close(fig_acf)
-
-                fig_fdc, _ = plot_flow_duration_curve(
-                    traces_1d, hist_blocks_1d,
-                )
-                fig_fdc.savefig(fig_dir / "fig06b_fdc.pdf", dpi=300)
-                plt.close(fig_fdc)
-
-                fig_sc, _ = plot_seasonal_cycle_comparison(
-                    traces_2d, hist_blocks_2d,
-                )
-                fig_sc.savefig(fig_dir / "fig06c_seasonal.pdf", dpi=300)
-                plt.close(fig_sc)
-
-                fig_hy, _ = plot_hydrology_panels(
-                    traces_1d, hist_blocks_1d, traces_2d, hist_blocks_2d,
-                )
-                fig_hy.savefig(fig_dir / "fig05_hydrology.pdf", dpi=300,
-                               bbox_inches="tight")
-                plt.close(fig_hy)
-
-                print(f"[04] wrote trace diagnostics to {fig_dir}")
-
-        except ImportError as exc:
-            print(f"[04] skipping plots (import error: {exc})")
+        print(f"[04/run_moea_find] WARNING: 0 Pareto solutions with "
+              f"{args.nfe} NFE and {generator.n_dvs} DVs. Skipping output "
+              f"writes (worker rank under MM Borg MPI, or no solutions found).")
 
 
 if __name__ == "__main__":

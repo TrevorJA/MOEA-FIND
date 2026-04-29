@@ -141,10 +141,10 @@ Kirsch historical-envelope constraint.
 
 ## 4. Deferred / out of scope
 
-- Comparison to NSGA-III, MOEA/D, and platypus epsilon-MOEA on the production
-  Cannonsville problem (user directive: Borg only as production algorithm;
-  EpsNSGAII is the local stand-in for analytic runs and shares the same
-  archive mechanism per DD-07).
+- Comparison to NSGA-III, MOEA/D, or other MOEAs on either the analytic
+  benchmark or the production Cannonsville problem. MM Borg MOEA is the
+  only optimizer used in the project per DD-07 (updated 2026-04-28); the
+  earlier EpsNSGAII (platypus) stand-in for laptop runs has been removed.
 - Phase randomization and KDE-smoothed CDF generators (DD-02 options E, F):
   mentioned in Discussion only.
 - Multi-site Delaware River Basin application: deferred to a follow-up paper.
