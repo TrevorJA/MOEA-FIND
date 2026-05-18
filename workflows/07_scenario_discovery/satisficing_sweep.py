@@ -39,7 +39,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.satisficing_labels import (  # noqa: E402
+from src.discovery.satisficing_labels import (  # noqa: E402
     load_manifest,
     sweep_manifest,
 )
@@ -47,9 +47,9 @@ from src.plotting.satisficing_boundary import (  # noqa: E402
     plot_gbt_boundary_2d,
     plot_manifest_summary,
 )
-from src.io import load_metric_bank as _read_bank  # noqa: E402
-from src.io import load_pareto_chars as _load_chars  # noqa: E402
-from src.paths import stage_output_dir  # noqa: E402
+from src.io_paths.io import load_metric_bank as _read_bank  # noqa: E402
+from src.io_paths.io import load_pareto_chars as _load_chars  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
 
 STAGE = "07_scenario_discovery"
 DRIVER = "satisficing_sweep"

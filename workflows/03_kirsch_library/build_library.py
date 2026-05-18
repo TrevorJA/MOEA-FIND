@@ -31,14 +31,14 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.experiment_utils import prepare_data  # noqa: E402
-from src.kirsch_utils import build_kirsch_generator  # noqa: E402
-from src.objectives import (  # noqa: E402
+from src.experiment import prepare_data  # noqa: E402
+from src.hydrology.kirsch_utils import build_kirsch_generator  # noqa: E402
+from src.metrics.objectives import (  # noqa: E402
     flows_to_series,
     compute_ssi_drought_characteristics,
     make_ssi_calculator,
 )
-from src.paths import stage_output_dir  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
 
 STAGE = "03_kirsch_library"
 DRIVER = "build_library"

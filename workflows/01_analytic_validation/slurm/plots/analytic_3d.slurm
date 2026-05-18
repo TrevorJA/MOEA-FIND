@@ -12,5 +12,5 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-python workflows/01_analytic_validation/plots/analytic_3d.py \
+python src/plotting/01_analytic_validation/analytic_3d.py \
     --slug k3_nfe50000_eps0.150_s42

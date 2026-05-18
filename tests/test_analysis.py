@@ -1,9 +1,9 @@
-"""Unit tests for src.analysis — numpy/scipy only, no SynHydro required."""
+"""Unit tests for src.discovery.analysis — numpy/scipy only, no SynHydro required."""
 
 import numpy as np
 import pytest
 
-from src.analysis import coverage_metrics, generate_lhs_samples, generate_sobol_samples
+from src.discovery.analysis import coverage_metrics, generate_lhs_samples, generate_sobol_samples
 
 
 # ---------------------------------------------------------------------------

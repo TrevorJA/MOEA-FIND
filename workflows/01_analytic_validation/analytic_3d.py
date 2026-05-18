@@ -2,7 +2,7 @@
 
 Runs the 3-objective Manhattan-norm analytic problem under MM Borg MOEA
 (launched via MPI) and writes numerical artifacts only. Figures are
-produced separately by ``workflows/01_analytic_validation/plots/analytic_3d.py``.
+produced separately by ``src/plotting/01_analytic_validation/analytic_3d.py``.
 
 Outputs under ``outputs/01_analytic_validation/analytic_3d/<slug>/``:
     - config.json
@@ -28,14 +28,14 @@ sys.modules.setdefault("synhydro", _stub)
 sys.modules.setdefault("synhydro.droughts", _stub.droughts)
 sys.modules.setdefault("synhydro.droughts.ssi", _stub.droughts.ssi)
 
-from src.analysis import (  # noqa: E402
+from src.discovery.analysis import (  # noqa: E402
     coverage_metrics,
     generate_lhs_samples,
     generate_sobol_samples,
 )
-from src.borg_runner import run_optimization  # noqa: E402
-from src.objectives import analytic_objectives  # noqa: E402
-from src.paths import stage_output_dir  # noqa: E402
+from src.optimization.borg_runner import run_optimization  # noqa: E402
+from src.metrics.objectives import analytic_objectives  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
 
 STAGE = "01_analytic_validation"
 DRIVER = "analytic_3d"

@@ -11,4 +11,4 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-python workflows/04_moea_find_single_site/plots/baseline_comparison.py
+python src/plotting/04_moea_find_single_site/baseline_comparison.py

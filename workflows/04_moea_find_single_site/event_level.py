@@ -21,14 +21,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.paths import stage_output_dir  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
+from src.io_paths.slugs import moea_slug  # noqa: E402
 
 STAGE = "04_moea_find_single_site"
 DRIVER = "event_level"
-
-
-def slug(nfe: int, n_years: int, seed: int) -> str:
-    return f"event_T{n_years}_nfe{nfe}_s{seed}"
 
 
 def main():
@@ -42,7 +39,10 @@ def main():
                    help="Validate pipeline without calling unimplemented helpers.")
     args = p.parse_args()
 
-    out = stage_output_dir(STAGE, DRIVER, slug(args.nfe, args.n_years, args.seed))
+    out = stage_output_dir(STAGE, DRIVER, moea_slug(
+        mode="event", n_years=args.n_years, nfe=args.nfe,
+        seed=args.seed, ssi=args.ssi,
+    ))
     (out / "config.json").write_text(json.dumps({
         "stage": STAGE, "driver": DRIVER, "status": "SCAFFOLDED",
         "nfe": args.nfe, "n_years": args.n_years, "seed": args.seed, "ssi": args.ssi,
@@ -50,7 +50,7 @@ def main():
 
     if args.dry_run:
         print(f"[04/event_level] dry-run OK; output_dir={out}")
-        print("  waiting on src.objectives event-level helpers "
+        print("  waiting on src.metrics.objectives event-level helpers "
               "(duration, peak_intensity, cumulative_severity, onset_month).")
         return
 

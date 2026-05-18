@@ -11,5 +11,5 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-python workflows/04_moea_find_single_site/plots/run_moea_find.py \
+python src/plotting/04_moea_find_single_site/run_moea_find.py \
     --slug residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad

@@ -503,7 +503,52 @@ the library, with the cross-correlations among characteristics
 annotated. Discuss the extent to which the correlation structure of
 the archive mirrors the physical coupling expected from the SSI event
 extraction, and whether the coverage metrics are sensitive to the
-convex-hull approximation of the feasible region.
+convex-hull approximation of the feasible region. The DD-15 protocol
+goes further by enumerating only K-tuples whose pairwise |Spearman ρ|
+across historical T-blocks is bounded below 0.6 and whose hierarchical
+clusters at |ρ| ≥ 0.7 are pairwise distinct (Stage 1); SI-6 reports
+the K* tuple's correlation matrix on Hist, Kirsch and MOEA Pareto
+side-by-side (Figure B), demonstrating that the production K-set was
+selected *because* its axes are statistically and conceptually
+distinct on the actual record.
+
+---
+
+### 10b. Trace length T = 20 is asserted by analogy to prior art with no numerical defense (DD-01 / DD-15)
+
+**Critique.** The choice of `n_years_out = 20` is justified in §2.4
+only by reference to Borgomeo et al. (2015), Zaniolo et al. (2024)
+and Wheeler et al. (2025), all of which use decade-scale traces. A
+reviewer can ask: why exactly 20? Is the result robust to T? Why not
+50, or 100? And — given the manuscript's hazard-space framing — why
+not a shorter T (e.g. 5 or 10 yr) that better corresponds to a
+*single hazard period* and makes the operational interpretation more
+direct?
+
+**Defensible response.** The DD-15 joint metric-and-T justification
+protocol (`governance/design_decisions.md` §DD-15) replaces the
+"by-analogy" defense with an empirical sweep across
+T ∈ {5, 10, 20, 30}. Stage 1 reports per-metric distributional
+stability across T; Stage 2 confirms Kirsch-generator fidelity at
+every T (Kolmogorov–Smirnov and Frobenius correlation-shift gates);
+Stage 3 fits per-T MOEA evaluation cost and assembles a five-component
+joint K × T composite score. The recommended T* and the two
+alternates are reported in
+`outputs/02_calibration/decision_matrix/pareto_front_KxT.json` and
+SI-6 Figures A–D. The decision is empirical, the alternates are
+defensible (each ranks within a small fraction of the top score on
+the Pareto front), and the user-preferred direction (shorter T to
+correspond to distinct hazard periods) is honoured *only if* the
+empirical gates support it.
+
+**Reviewer would cite.** No specific paper — this is a "show me the
+sensitivity analysis" critique that is generic to any
+fixed-trace-length stochastic-streamflow methodology paper.
+
+**Preemptive action.** SI-6 carries the decision-matrix table and
+all four DD-15 figures. The §2.4 main-text paragraph explicitly
+names the surviving alternates so a reviewer can see that the
+decision is robust within a known band.
 
 ---
 
@@ -677,6 +722,21 @@ fitted to historical events and does not account for the non-linear
 mapping from streamflow generator decision variables to drought
 characteristics. Position MOEA-FIND as complementary to SDF methods
 rather than making a claim of absolute novelty.
+
+**Sharpening (added 2026-04-30, DD-16).** The §3.4 magnitude-varying
+sensitivity analysis converts the novelty claim from absence-of-
+evidence to a constructive comparison against Hadjimichael et al.
+(2020). Their MV-SA decomposes sensitivity at each magnitude
+percentile of a stakeholder outcome with respect to *parameter*
+factors (climate perturbations, demand multipliers, infrastructure
+variables); ours decomposes sensitivity at each magnitude percentile
+of a Pywr-DRB *operational outcome* with respect to *drought
+characteristic* factors. The factor / axis flip is a non-trivial
+methodological extension that only a method which structures
+coverage in characteristic space can perform — standard parametric
+SDF sampling cannot, because the parameter→characteristic mapping is
+uncontrolled. Pointer: DD-16, §3.4, Introduction paragraph after
+the Hadjimichael nested-loop reference.
 
 ---
 
@@ -921,6 +981,23 @@ acknowledge that the operational relevance claim is untested. A methods
 paper that claims practical value for reservoir management but does not
 demonstrate reservoir management outcomes is vulnerable to a
 "so what" rejection from WRR editors.
+
+**HC-3 partial defence (added 2026-04-30, DD-16).** §3.4
+magnitude-varying sensitivity analysis directly addresses HC-3 in
+the form a reviewer can audit. By computing per-percentile
+sensitivity of NYC operational outcomes to the optimised
+drought-hazard characteristics, MV-SA empirically tests whether the
+characteristics MOEA-FIND elevates as targets are the dimensions
+that drive operational stress, and whether their importance shifts
+with severity. This does not eliminate the deferred companion-paper
+claim, but it converts "the operational relevance claim is
+untested" into "the operational relevance claim is partially
+tested in the same paper, on the same Pywr-DRB outcomes the SD
+classifier uses, and the magnitude-varying signal is reported with
+bootstrap CIs and a control-factor noise floor." Reviewers asking
+"so what" now have a quantitative answer in §3.4, paired with the
+§3.3 separability test, even before the companion-paper Hashimoto
+analysis lands. Pointer: DD-16, §3.4, SI-12b.
 
 ### HC-4. The anti-ideal placement assumption (Critique 3) is not verified for the hydrologic case and could silently invalidate the non-dominance argument
 

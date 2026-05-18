@@ -23,12 +23,12 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.analysis import (  # noqa: E402
+from src.discovery.analysis import (  # noqa: E402
     coverage_metrics,
     generate_lhs_samples,
     generate_sobol_samples,
 )
-from src.paths import stage_output_dir  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
 
 STAGE = "03_kirsch_library"
 DRIVER = "subsample_baseline"

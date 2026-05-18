@@ -13,7 +13,7 @@ Optimization is MM Borg MOEA (launched via MPI). Per-K outputs under
     - samples.npz  (raw point clouds for downstream plotting)
 
 The companion plotting driver
-``workflows/01_analytic_validation/plots/dimension_sweep.py`` reads
+``src/plotting/01_analytic_validation/dimension_sweep.py`` reads
 every ``k{K}`` directory and produces the K=1..6 sweep figure.
 """
 
@@ -35,10 +35,10 @@ sys.modules.setdefault("synhydro", _stub)
 sys.modules.setdefault("synhydro.droughts", _stub.droughts)
 sys.modules.setdefault("synhydro.droughts.ssi", _stub.droughts.ssi)
 
-from src.analysis import generate_lhs_samples, generate_sobol_samples  # noqa: E402
-from src.borg_runner import run_optimization  # noqa: E402
-from src.objectives import analytic_objectives  # noqa: E402
-from src.paths import stage_output_dir  # noqa: E402
+from src.discovery.analysis import generate_lhs_samples, generate_sobol_samples  # noqa: E402
+from src.optimization.borg_runner import run_optimization  # noqa: E402
+from src.metrics.objectives import analytic_objectives  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
 
 STAGE = "01_analytic_validation"
 DRIVER = "dimension_sweep"

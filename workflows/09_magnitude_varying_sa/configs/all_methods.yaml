@@ -1,0 +1,53 @@
+# Stage 09 -- production headline run (all three SA methods).
+#
+# Magnitude-varying sensitivity analysis along NYC minimum reservoir
+# storage. Factor space = the upstream MOEA-FIND objective axes
+# (drought-hazard characteristics from chars JSON's objective_keys).
+#
+# Loaded by `run_mv_sa.py --config all_methods.yaml`. Any flag passed
+# explicitly on the command line overrides the value here.
+methods:
+  - delta
+  - pawn
+  - rbd_fast
+
+magnitude_axis: nyc_min_storage_frac
+response_form: exceedance
+
+# 19 evenly-spaced points avoiding the degenerate 0% and 100% endpoints.
+# Matches the visual grain of Hadjimichael et al. (2020) Fig. 4.
+percentiles:
+  - 0.05
+  - 0.10
+  - 0.15
+  - 0.20
+  - 0.25
+  - 0.30
+  - 0.35
+  - 0.40
+  - 0.45
+  - 0.50
+  - 0.55
+  - 0.60
+  - 0.65
+  - 0.70
+  - 0.75
+  - 0.80
+  - 0.85
+  - 0.90
+  - 0.95
+
+n_bootstrap: 200
+seed: 42
+cv_drop_threshold: 0.05
+include_control: true
+
+# Conditional-mode parameters (unused at response_form: exceedance).
+secondary: null
+window_frac: 0.30
+
+# Per-method tuning (matches Stage 08 settings for cross-stage consistency).
+delta_num_resamples: 100
+pawn_S: 10
+rbd_fast_M: 10
+rbd_fast_num_resamples: 100

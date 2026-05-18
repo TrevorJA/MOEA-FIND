@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.constraints import (
+from src.optimization.constraints import (
     ConstraintConfig,
     ConstraintResult,
     Violation,

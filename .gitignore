@@ -47,3 +47,4 @@ manuscript/figures/*.png
 ./*/slurm_logs/
 workflows/slurm/slurm_logs/*
 */slurm_logs/*
+*/external_source_code/*

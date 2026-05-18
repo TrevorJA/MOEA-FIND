@@ -12,4 +12,4 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-python workflows/02_calibration/plots/kirsch_convergence.py
+python src/plotting/02_calibration/kirsch_convergence.py

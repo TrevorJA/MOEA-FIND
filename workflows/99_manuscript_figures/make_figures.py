@@ -56,7 +56,7 @@ except Exception:
 
 import matplotlib.pyplot as plt  # noqa: E402
 
-from src.paths import (  # noqa: E402
+from src.io_paths.paths import (  # noqa: E402
     OUTPUTS_ROOT,
     manuscript_figure_dir,
     stage_output_dir,
@@ -90,8 +90,8 @@ KIRSCH_LIBRARY_DIR: Path = stage_output_dir(
 # build was used. fig06 needs this to find characteristics.npz.
 KIRSCH_LIBRARY_SLUG: str = "n10000_t20_ssi3_s42"
 # Analytic compute slugs (figSI01 reads pareto.npz from these).
-ANALYTIC_2D_SLUG: str = "k2_nfe10000_eps0.060_s42"
-ANALYTIC_3D_SLUG: str = "k3_nfe10000_eps0.150_s42"
+ANALYTIC_2D_SLUG: str = "k2_nfe100000_eps0.060_s42"
+ANALYTIC_3D_SLUG: str = "k3_nfe50000_eps0.150_s42"
 
 # Single-site MOEA-FIND variant dir + matching pywrdrb re-eval dir.
 # Resolved at main() time from ``--single-site-slug``.
@@ -229,11 +229,11 @@ def fig05_cannonsville_hydrology() -> bool:
     # Rebuild the combined panel from on-disk traces + fresh historical blocks.
     try:
         from src.plotting.trace_diagnostics import plot_hydrology_panels
-        from src.historical_blocks import (
+        from src.hydrology.historical_blocks import (
             resample_historical_blocks,
             resample_historical_blocks_2d,
         )
-        from src.experiment_utils import prepare_data
+        from src.experiment import prepare_data
     except Exception as exc:  # noqa: BLE001
         _skip("fig05", f"imports for rebuild failed: {exc}")
         return False
@@ -300,9 +300,9 @@ def fig06_cannonsville_pareto() -> bool:
 
     try:
         from src.plotting.drought_space import plot_fig6_composite
-        from src.historical_blocks import compute_historical_block_chars
-        from src.experiment_utils import prepare_data
-        from src.objectives import make_ssi_calculator, flows_to_series
+        from src.hydrology.historical_blocks import compute_historical_block_chars
+        from src.experiment import prepare_data
+        from src.metrics.objectives import make_ssi_calculator, flows_to_series
     except Exception as exc:  # noqa: BLE001
         _skip("fig06", f"imports for rebuild failed: {exc}")
         return False
@@ -364,7 +364,7 @@ def fig06_cannonsville_pareto() -> bool:
     )
 
     # 1D historical block traces at stride=1 (same ordering as hist_chars).
-    from src.historical_blocks import resample_historical_blocks
+    from src.hydrology.historical_blocks import resample_historical_blocks
     hist_blocks_1d = resample_historical_blocks(
         monthly_1d, T_years=n_years, stride=1,
     )
@@ -416,23 +416,28 @@ def fig06_cannonsville_pareto() -> bool:
 def fig07_gbt_hazard_discovery() -> bool:
     """Figure 7 (§3.3) - DRB scenario discovery (satisficing map).
 
-    Repackages the satisficing classification figure emitted by stage 06
-    ``policy_reeval`` (``<POLICY_REEVAL_DIR>/figures/fig09_satisficing_map.pdf``)
-    under the manuscript-ordered name ``fig07_gbt_hazard_discovery.pdf``.
-
-    The upstream figure plots each Pareto policy in (D_1, D_2) drought
-    space, colour-coded by whether the full Pywr-DRB re-evaluation under
-    that policy's synthetic inflows satisfies the FFMP / satisficing
-    criterion. If the upstream PDF is present we copy it; otherwise we
-    skip with a message pointing at the run that needs to complete.
+    Repackages the satisficing classification figure emitted by
+    ``src/plotting/07_scenario_discovery/scenario_discovery_plots.py``
+    (under ``figures/07_scenario_discovery/scenario_discovery_plots/<slug>/``)
+    as the manuscript-ordered ``fig07_gbt_hazard_discovery.pdf``.
     """
-    prebuilt = POLICY_REEVAL_DIR / "figures" / "fig09_satisficing_map.pdf"
-    if prebuilt.exists():
-        _copy(prebuilt, FIGURES_MAIN / "fig07_gbt_hazard_discovery.pdf")
-        return True
-    _skip("fig07", f"missing {prebuilt.relative_to(PROJECT_ROOT)} "
-                    "(run stage 06 policy_reeval classify stage for the "
-                    "configured variant first)")
+    from src.io_paths.paths import stage_figure_dir
+
+    sd_dir = stage_figure_dir(
+        "07_scenario_discovery", "scenario_discovery_plots",
+        SINGLE_SITE_DIR.name,  # slug matches stage 04 single-site slug
+        create=False,
+    )
+    candidates = [
+        sd_dir / "fig09_satisficing_map.pdf",
+        sd_dir / "fig09_satisficing_map_gbt.pdf",
+    ]
+    for prebuilt in candidates:
+        if prebuilt.exists():
+            _copy(prebuilt, FIGURES_MAIN / "fig07_gbt_hazard_discovery.pdf")
+            return True
+    _skip("fig07", f"none of {[p.relative_to(PROJECT_ROOT) for p in candidates]} "
+                    "exist (run stage 07 scenario_discovery_plots first)")
     return False
 
 

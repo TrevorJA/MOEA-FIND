@@ -3,7 +3,7 @@
 Couples MM Borg MOEA to the validated
 SynHydro Kirsch-Nowak generator via :class:`KirschBorgWrapper`. Writes
 only numerical artifacts; figures are produced by the paired plotting
-driver ``workflows/04_moea_find_single_site/plots/run_moea_find.py``.
+driver ``src/plotting/04_moea_find_single_site/run_moea_find.py``.
 
 Outputs under ``outputs/04_moea_find_single_site/run_moea_find/<slug>/``:
     config.json
@@ -33,27 +33,29 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.experiment_config import DEFAULT_EXPERIMENT  # noqa: E402
-from src.kirsch_utils import build_kirsch_generator  # noqa: E402
-from src.constraint_loaders import load_hydrologic_constraints, load_dv_uniformity_constraints  # noqa: E402
-from src.experiment_utils import (  # noqa: E402
+from src.experiment.config import DEFAULT_EXPERIMENT  # noqa: E402
+from src.hydrology.kirsch_utils import build_kirsch_generator  # noqa: E402
+from src.optimization.constraint_loaders import load_hydrologic_constraints, load_dv_uniformity_constraints  # noqa: E402
+from src.experiment import (  # noqa: E402
     prepare_data,
     compute_historical_ssi_chars,
+    compute_historical_short_block_chars,
+    make_short_block_chars_fn,
     compute_ssi_anti_ideal,
     extract_pareto_maxes,
     run_experiment,
-    make_variant_slug,
 )
-from src.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
-from src.constraints import ConstraintConfig  # noqa: E402
-from src.constraints_dv import DVUniformityConfig, VALID_STATISTICS  # noqa: E402
-from src.drought_metrics import (  # noqa: E402
+from src.io_paths.slugs import moea_slug  # noqa: E402
+from src.hydrology.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
+from src.optimization.constraints import ConstraintConfig  # noqa: E402
+from src.optimization.constraints_dv import DVUniformityConfig, VALID_STATISTICS  # noqa: E402
+from src.metrics.drought_metrics import (  # noqa: E402
     PRESETS,
     metric_labels,
     metric_names,
     resolve_metric_set,
 )
-from src.paths import stage_output_dir  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
 
 STAGE = "04_moea_find_single_site"
 DRIVER = "run_moea_find"
@@ -147,6 +149,10 @@ def main():
     p.add_argument("--checkpoint-freq", type=int, default=cfg.checkpoint_freq)
     p.add_argument("--old-checkpoint", type=Path, default=None,
                    help="Path to a checkpoint file to resume from.")
+    p.add_argument("--slug-suffix", default=None,
+                   help="Optional discriminator appended to the variant slug "
+                        "(e.g. 'iter2' to distinguish anti-ideal re-anchor runs "
+                        "from the baseline run with otherwise-identical params).")
     if yaml_defaults:
         p.set_defaults(**yaml_defaults)
     args = p.parse_args()
@@ -167,20 +173,26 @@ def main():
     else:
         constrained = False
 
-    # --- Output directory keyed by variant slug ---
+    # --- Output directory keyed by unified variant slug ---
+    cons = (
+        "dv-l2" if args.constraint_mode == "dv_uniform"
+        else "hydro" if args.constraint_mode == "hydrologic"
+        else "none"
+    )
     slug_extra: dict = {}
     if args.constraint_mode == "dv_uniform":
-        slug_extra["cm"] = "dv_uniform"
         slug_extra["st"] = args.statistic
-    elif args.constraint_mode == "hydrologic":
-        slug_extra["cm"] = "hydrologic"
-    slug = make_variant_slug(
+    if args.slug_suffix:
+        slug_extra["sfx"] = args.slug_suffix
+    slug = moea_slug(
         mode=args.mode,
         n_years=args.n_years,
         nfe=args.nfe,
         seed=args.seed,
-        constrained=constrained,
-        extra=slug_extra if slug_extra else None,
+        ssi=args.ssi,
+        metrics=args.metric_set,
+        cons=cons,
+        extra=slug_extra or None,
     )
     out = stage_output_dir(STAGE, DRIVER, slug)
     print(f"[04/run_moea_find] variant: {slug}")
@@ -190,16 +202,12 @@ def main():
     cache_dir.mkdir(parents=True, exist_ok=True)
     monthly_2d, monthly_1d = prepare_data(cache_dir)
 
-    # --- SSI characterisation ---
+    # --- Metric set and historical characterisation ---
+    _SHORT_BLOCK_PRESETS = {"short_block_drb", "short_block_drb_v2"}
+
     metric_set = resolve_metric_set(args.metric_set)
     objective_keys = metric_names(metric_set)
-    ssi_hist, ssi_calc, hist_chars = compute_historical_ssi_chars(
-        monthly_1d, args.ssi
-    )
-    from src.objectives import compute_ssi_drought_characteristics
-    hist_chars = compute_ssi_drought_characteristics(
-        ssi_hist, monthly_flows=monthly_1d
-    )
+
     feasible_maxes = None
     if args.anti_ideal_reference is not None:
         ref = Path(args.anti_ideal_reference)
@@ -211,14 +219,30 @@ def main():
             print(f"[04/run_moea_find] WARNING: --anti-ideal-reference {ref} "
                   f"not found; falling back to historical-max D*.")
 
+    if args.metric_set in _SHORT_BLOCK_PRESETS:
+        # Short-block raw-flow path (T=1, DD-15): no SSI fitting.
+        hist_chars = compute_historical_short_block_chars(monthly_2d, monthly_1d)
+        chars_fn = make_short_block_chars_fn(monthly_1d)
+        print(f"[04/run_moea_find] short-block characterisation (T=1 raw-flow):")
+    else:
+        # Standard SSI path.
+        from src.metrics.objectives import compute_ssi_drought_characteristics
+        ssi_hist, ssi_calc, hist_chars = compute_historical_ssi_chars(
+            monthly_1d, args.ssi
+        )
+        hist_chars = compute_ssi_drought_characteristics(
+            ssi_hist, monthly_flows=monthly_1d
+        )
+        chars_fn = None
+        print(f"[04/run_moea_find] historical SSI-{args.ssi}: "
+              f"n={hist_chars['n_events']}")
+
     anti_ideal = compute_ssi_anti_ideal(
         hist_chars,
         metric_set,
         headroom=cfg.anti_ideal_headroom,
         feasible_maxes=feasible_maxes,
     )
-    print(f"[04/run_moea_find] historical SSI-{args.ssi}: "
-          f"n={hist_chars['n_events']}")
     for m in metric_set:
         print(f"     {m.label}: {m.extract(hist_chars):.4g} ({m.units})")
     print(f"[04/run_moea_find] metric set: {args.metric_set} -> {objective_keys}")
@@ -275,6 +299,7 @@ def main():
         constraint_cfg=constraint_cfg,
         dv_constraint_cfg=dv_constraint_cfg,
         output_dir=out,
+        chars_fn=chars_fn,
         **algo_kwargs,
     )
 
@@ -298,34 +323,43 @@ def main():
         # Cache the historical block characteristics + raw historical
         # blocks alongside the Pareto archive so the plotting driver can
         # render Figs 5/6 without re-doing the historical-block compute.
-        from src.historical_blocks import (
-            compute_historical_block_chars,
-            resample_historical_blocks,
-            resample_historical_blocks_2d,
+        # First-event presets compare candidates against the all-events
+        # historical envelope (per-event records on the full record), not
+        # the per-block characteristics, so the per-block cache is skipped.
+        is_first_event_family = any(
+            str(k).startswith("first_event_") for k in objective_keys
         )
-        hist_block_chars = compute_historical_block_chars(
-            monthly_1d, T_years=args.n_years, ssi_calc=ssi_calc,
-            objective_keys=objective_keys, stride=1,
-        )
-        np.savez(
-            out / "historical_block_chars.npz",
-            chars=hist_block_chars,
-            objective_keys=np.array(list(objective_keys)),
-        )
-        hist_blocks_1d = resample_historical_blocks(
-            monthly_1d, T_years=args.n_years, stride=1,
-        )
-        hist_blocks_2d = resample_historical_blocks_2d(
-            monthly_2d, T_years=args.n_years, stride=1,
-        )
-        np.savez(
-            out / "historical_blocks.npz",
-            blocks_1d=np.array(hist_blocks_1d),
-            blocks_2d=np.array(hist_blocks_2d),
-            anti_ideal=anti_ideal,
-        )
-        print(f"     wrote {out / 'historical_block_chars.npz'} and "
-              f"{out / 'historical_blocks.npz'}")
+        if is_first_event_family:
+            print(f"     skipped historical block cache (first-event preset)")
+        else:
+            from src.hydrology.historical_blocks import (
+                compute_historical_block_chars,
+                resample_historical_blocks,
+                resample_historical_blocks_2d,
+            )
+            hist_block_chars = compute_historical_block_chars(
+                monthly_1d, T_years=args.n_years, ssi_calc=ssi_calc,
+                objective_keys=objective_keys, stride=1,
+            )
+            np.savez(
+                out / "historical_block_chars.npz",
+                chars=hist_block_chars,
+                objective_keys=np.array(list(objective_keys)),
+            )
+            hist_blocks_1d = resample_historical_blocks(
+                monthly_1d, T_years=args.n_years, stride=1,
+            )
+            hist_blocks_2d = resample_historical_blocks_2d(
+                monthly_2d, T_years=args.n_years, stride=1,
+            )
+            np.savez(
+                out / "historical_blocks.npz",
+                blocks_1d=np.array(hist_blocks_1d),
+                blocks_2d=np.array(hist_blocks_2d),
+                anti_ideal=anti_ideal,
+            )
+            print(f"     wrote {out / 'historical_block_chars.npz'} and "
+                  f"{out / 'historical_blocks.npz'}")
     else:
         print(f"[04/run_moea_find] WARNING: 0 Pareto solutions with "
               f"{args.nfe} NFE and {generator.n_dvs} DVs. Skipping output "

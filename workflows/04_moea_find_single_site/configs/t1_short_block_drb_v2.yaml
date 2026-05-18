@@ -1,0 +1,39 @@
+# T=1 short-block run for DRB Cannonsville — DD-15c reformulation.
+#
+# Objectives (preset: short_block_drb_v2):
+#   oct_logmean_g | dec_logmean_g | jun_logmean_g | recession_amjjas_g
+# All four metrics are bounded in [0, 1) via Mapping G (Gaussian CDF of
+# standardized log-flow). Anti-ideal D* = 1.0 (CONSTANT) for every metric;
+# converges in 0 re-anchor iterations.
+#
+# Selected by diagnostic-driven K=4 search over a 48-candidate pool
+# (24 sub-annual log-space windows × {Mapping G, Mapping E}). Gates:
+# discrim ≥ 0.2, tail_res ≥ 1e-4, flood_corner ≤ 0.05, median |ρ| ≤ 0.6,
+# max |ρ| ≤ 0.55, ≥ 4 distinct concept tags. Composite score = 0.674,
+# median |ρ| = 0.148, max |ρ| = 0.319. See:
+#   outputs/02_calibration/select_bounded_kset/selection_report.json
+#   figures/02_calibration/bounded_metric_selection/bounded_metric_selection.pdf
+#
+# Concepts span: early_winter_month / winter_month / early_summer_month /
+# drawdown_rate. DRB-physical interpretation:
+#   * oct_logmean_g — fall recharge / early winter water availability
+#   * dec_logmean_g — deep winter water availability
+#   * jun_logmean_g — early summer / spring-summer transition
+#   * recession_amjjas_g — log-slope of Apr-Sep drawdown (relative drawdown rate)
+#
+# Constraint: DV-uniformity (Anderson-Darling, n_dvs=12) — unchanged from v1.
+mode: residual
+n_years: 1
+metric_set: short_block_drb_v2
+
+constraint_mode: dv_uniform
+statistic: ad
+dv_uniformity_json: outputs/02_calibration/dv_uniformity_calibration/residual/calibrated_dv_tolerances.json
+
+algorithm: borg_mm
+nfe: 200000
+seed: 42
+n_islands: 4
+checkpoint_freq: 1000
+
+site_label: cannonsville

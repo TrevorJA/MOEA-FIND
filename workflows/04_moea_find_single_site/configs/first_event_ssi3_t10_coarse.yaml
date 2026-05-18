@@ -1,0 +1,37 @@
+# T=10 first-SSI3-drought, COARSE 5-objective set (2026-05-15).
+# Runs ALONGSIDE first_event_ssi3_t10_fixed.yaml (back-compat preserved).
+#
+# Purpose: small, fast Pareto ensemble for building/validating the new
+# windowed per-scenario downstream pipeline. ~1/10-objective-range epsilons
+# → tens–low-hundreds of solutions instead of ~8000.
+#
+# Objectives (preset: first_event_ssi3_t10_coarse) — first critical SSI-3
+# drought only, NO duration axis. All AntiIdealRule.CONSTANT:
+#   first_event_severity_fcc                      D*=5.0  eps=0.35
+#   first_event_magnitude_fcc                     D*=120  eps=5.6
+#   first_event_peak_month_fcc                    D*=13   eps=1.1
+#   first_event_onset_intensification_rate_fcc    D*=5.0  eps=0.44
+#   first_event_rising_limb_fraction_fcc          D*=1.1  eps=0.094
+# Epsilons ≈ observed-Pareto-range/10 from job 229763. Severity (and the
+# severity-derived onset rate) are clipped at 4.5 in
+# objectives.compute_ssi_drought_characteristics (interim SSI tail-artifact
+# workaround being fixed in SynHydro); D* lowered to 5.0 accordingly.
+#
+# Hard constraint: >=1 critical SSI-3 event (auto-gated by first_event_
+# name prefix). DV-uniformity Anderson-Darling constraint as production.
+mode: residual
+n_years: 10
+ssi: 3
+metric_set: first_event_ssi3_t10_coarse
+
+constraint_mode: dv_uniform
+statistic: ad
+dv_uniformity_json: outputs/02_calibration/dv_uniformity_calibration/residual/calibrated_dv_tolerances.json
+
+algorithm: borg_mm
+nfe: 200000
+seed: 42
+n_islands: 4
+checkpoint_freq: 1000
+
+site_label: cannonsville

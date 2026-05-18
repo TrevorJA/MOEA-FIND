@@ -1,10 +1,10 @@
-"""Unit tests for src.objectives — pure math, no SynHydro required."""
+"""Unit tests for src.metrics.objectives — pure math, no SynHydro required."""
 
 import numpy as np
 import pytest
 
-from src.drought_metrics import REGISTRY, resolve_metric_set
-from src.objectives import (
+from src.metrics.drought_metrics import REGISTRY, resolve_metric_set
+from src.metrics.objectives import (
     analytic_objectives,
     compute_drought_characteristics,
     compute_drought_events,

@@ -16,7 +16,7 @@ sample.
 Compute-only driver: writes numerical artifacts under
 ``outputs/08_nyc_sensitivity/run_sa/<slug>/``. Figures are produced by
 the paired plotting driver
-``workflows/08_nyc_sensitivity/plots/run_sa.py``.
+``src/plotting/08_nyc_sensitivity/run_sa.py``.
 
 Outputs (``outputs/08_nyc_sensitivity/run_sa/<slug>/``):
 
@@ -54,10 +54,10 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.drought_metrics import PRESETS, REGISTRY, resolve_metric_set, metric_names  # noqa: E402
-from src.io import load_metric_bank, load_pareto_chars, save_experiment_config  # noqa: E402
-from src.paths import stage_output_dir  # noqa: E402
-from src.sensitivity import (  # noqa: E402
+from src.metrics.drought_metrics import PRESETS, REGISTRY, resolve_metric_set, metric_names  # noqa: E402
+from src.io_paths.io import load_metric_bank, load_pareto_chars, save_experiment_config  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
+from src.sensitivity.sensitivity import (  # noqa: E402
     HEADLINE_INDEX,
     METHODS,
     apply_method_selection_criterion,
@@ -69,7 +69,7 @@ from src.sensitivity import (  # noqa: E402
     drop_low_variance_factors,
     resolve_method,
 )
-from src.slugs import build_slug  # noqa: E402
+from src.io_paths.slugs import build_slug  # noqa: E402
 
 STAGE = "08_nyc_sensitivity"
 DRIVER = "run_sa"
@@ -142,7 +142,7 @@ def _resolve_factor_set(
     read from ``chars_payload['objective_keys']`` (the upstream archive's
     record of what was optimized). The user can override with
     ``--metric-set <preset|comma-list>``; the override is validated
-    against ``src.drought_metrics.REGISTRY``.
+    against ``src.metrics.drought_metrics.REGISTRY``.
 
     Returns:
         Tuple of ``(factor_names, metric_set_tag)``. ``metric_set_tag``
@@ -407,48 +407,90 @@ def main():
     realization_counts: Dict[str, int] = {}
 
     t0 = time.time()
-    for outcome_label, raw_col, transform in full_outcome_list:
+    n_outcomes = len(full_outcome_list)
+    n_methods = len(args.methods)
+    n_total_cells = n_outcomes * n_methods
+    cell_idx = 0
+
+    for o_idx, (outcome_label, raw_col, transform) in enumerate(full_outcome_list, 1):
         X_arr, Y_arr, kept_ids = _align_xy(
             chars_df, bank_df, factor_names, raw_col,
         )
         if transform == "log1p":
             Y_arr = np.log1p(Y_arr)
         realization_counts[outcome_label] = int(X_arr.shape[0])
+        print(f"[08] outcome {o_idx}/{n_outcomes}: {outcome_label} "
+              f"(n={X_arr.shape[0]}, elapsed={time.time()-t0:.0f}s)",
+              flush=True)
         if X_arr.shape[0] < 50:
-            print(f"[08] outcome {outcome_label}: only {X_arr.shape[0]} "
-                  f"realizations after NaN drop; SA will be unreliable but "
-                  f"still computed.")
+            print(f"[08]   only {X_arr.shape[0]} realizations after NaN drop; "
+                  f"SA will be unreliable but still computed.",
+                  flush=True)
 
-        for method_name in args.methods:
+        for m_idx, method_name in enumerate(args.methods, 1):
+            cell_idx += 1
             method = resolve_method(method_name)
             kw = _method_kwargs(method_name, args)
-            print(f"[08] {outcome_label} / {method_name}: computing indices "
-                  f"on n={X_arr.shape[0]}...")
+            print(f"[08]   cell {cell_idx}/{n_total_cells} "
+                  f"({outcome_label} / {method_name}, n={X_arr.shape[0]}):",
+                  flush=True)
 
+            t_step = time.time()
+            print(f"[08]     [1/4] base indices ...", flush=True)
             indices_df = method.compute(X_arr, Y_arr, factor_names, seed=args.seed, **kw)
             method_results[method_name][outcome_label] = indices_df
+            print(f"[08]     [1/4] base indices done ({time.time()-t_step:.1f}s)",
+                  flush=True)
 
+            t_step = time.time()
+            print(f"[08]     [2/4] bootstrap CIs (n_bootstrap={args.n_bootstrap}) ...",
+                  flush=True)
             boot_df = bootstrap_indices(
                 method, X_arr, Y_arr, factor_names,
                 n_bootstrap=args.n_bootstrap, seed=args.seed,
                 method_kwargs=kw,
             )
             bootstrap_results[method_name][outcome_label] = boot_df
+            print(f"[08]     [2/4] bootstrap CIs done ({time.time()-t_step:.1f}s)",
+                  flush=True)
 
+            t_step = time.time()
+            print(f"[08]     [3/4] rank-stability bootstrap (n_bootstrap={args.n_bootstrap}) ...",
+                  flush=True)
             rank_df = bootstrap_rank_stability(
                 method, X_arr, Y_arr, factor_names,
                 n_bootstrap=args.n_bootstrap, seed=args.seed,
                 method_kwargs=kw,
             )
             rank_stab_results[method_name][outcome_label] = rank_df
+            print(f"[08]     [3/4] rank-stability done ({time.time()-t_step:.1f}s)",
+                  flush=True)
 
-            conv_df = convergence_curve(
-                method, X_arr, Y_arr, factor_names,
-                sizes=args.convergence_sizes,
-                n_replicates=args.n_convergence_replicates,
-                seed=args.seed, method_kwargs=kw,
-            )
+            t_step = time.time()
+            if args.n_convergence_replicates <= 0:
+                print(f"[08]     [4/4] convergence curve SKIPPED "
+                      f"(n_convergence_replicates=0)",
+                      flush=True)
+                conv_df = pd.DataFrame(
+                    columns=["factor", "n", "mean", "p05", "p95", "replicates"]
+                )
+            else:
+                print(f"[08]     [4/4] convergence curve "
+                      f"(sizes={list(args.convergence_sizes)}, "
+                      f"n_replicates={args.n_convergence_replicates}) ...",
+                      flush=True)
+                conv_df = convergence_curve(
+                    method, X_arr, Y_arr, factor_names,
+                    sizes=args.convergence_sizes,
+                    n_replicates=args.n_convergence_replicates,
+                    seed=args.seed, method_kwargs=kw,
+                )
+                print(f"[08]     [4/4] convergence done ({time.time()-t_step:.1f}s)",
+                      flush=True)
             convergence_results[method_name][outcome_label] = conv_df
+            print(f"[08]   cell {cell_idx}/{n_total_cells} complete "
+                  f"(elapsed total {time.time()-t0:.0f}s)",
+                  flush=True)
 
     # --- Cross-method rank-correlation (per outcome) ---
     cm_corr_records = []

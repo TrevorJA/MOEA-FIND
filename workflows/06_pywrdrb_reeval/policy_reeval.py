@@ -44,7 +44,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.multisite_data import (  # noqa: E402
+from src.io_paths.multisite_data import (  # noqa: E402
     load_pywrdrb_gage_flow,
     load_pywrdrb_catchment_inflow,
     get_kirsch_sites,
@@ -52,9 +52,9 @@ from src.multisite_data import (  # noqa: E402
     get_kde_pairs,
     fit_multisite_generators,
 )
-from src.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
-from src.paths import stage_output_dir  # noqa: E402
-from src.pywrdrb_bridge import (  # noqa: E402
+from src.hydrology.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
+from src.pywrdrb.bridge import (  # noqa: E402
     replay_pareto_to_multisite_monthly,
     disaggregate_monthly_to_daily,
     fit_kde_models,
@@ -65,12 +65,12 @@ from src.pywrdrb_bridge import (  # noqa: E402
     prep_predicted_inflows,
     run_pywrdrb_batch,
 )
-from src.scenario_discovery import (  # noqa: E402
+from src.discovery.scenario_discovery import (  # noqa: E402
     extract_drought_levels,
     build_satisficing_table,
     save_results,
 )
-from src.satisficing_metrics import (  # noqa: E402
+from src.pywrdrb.satisficing_metrics import (  # noqa: E402
     compute_metric_bank,
     write_metric_bank,
 )

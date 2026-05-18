@@ -1,0 +1,35 @@
+# T=10 first-SSI3-drought run for DRB Cannonsville (2026-05-06 pivot).
+#
+# Objectives (preset: first_event_ssi3_t10):
+#   first_event_duration | first_event_severity | first_event_magnitude
+#   | first_event_start_month | first_event_peak_month
+#
+# Each candidate 10-year sequence is reduced to the characteristics of its
+# FIRST critical SSI-3 drought event:
+#   * severity = |min(SSI)| within the event (peak depth)
+#   * magnitude = |sum(SSI)| within the event (cumulative deficit)
+#   * duration in months
+#   * start_month / peak_month — calendar months 1..12, cyclic anti-ideal
+# The Manhattan-norm DD-11 device adds the L1 distance from D*. Anti-ideal
+# anchored on the all-events historical envelope via DroughtMetric.max_partner
+# pointing at worst_severity / max_magnitude / max_duration in the historical
+# chars dict.
+#
+# Hard constraint: ≥1 critical SSI-3 event in the candidate sequence (gated to
+# the first_event_* preset family). Empty-event candidates are infeasible.
+# DV-uniformity (Anderson-Darling) constraint follows the production pattern.
+mode: residual
+n_years: 10
+metric_set: first_event_ssi3_t10
+
+constraint_mode: dv_uniform
+statistic: ad
+dv_uniformity_json: outputs/02_calibration/dv_uniformity_calibration/residual/calibrated_dv_tolerances.json
+
+algorithm: borg_mm
+nfe: 200000
+seed: 42
+n_islands: 4
+checkpoint_freq: 1000
+
+site_label: cannonsville

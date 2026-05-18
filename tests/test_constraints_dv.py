@@ -7,7 +7,7 @@ These tests pin down the behaviour the ablation experiment relies on:
     - ``compute_dv_constraint`` emits a ``ConstraintResult`` of the shape
       ``run_experiment`` expects when ``n_constrs = 1``;
     - the two-tier soft/hard band machinery inherited from
-      ``src.constraints._two_tier`` is wired correctly — soft penalty 0 inside
+      ``src.optimization.constraints._two_tier`` is wired correctly — soft penalty 0 inside
       tolerance, hard_violation > 0 past the hard cut-off.
 """
 
@@ -16,8 +16,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.constraints import ConstraintResult, _two_tier
-from src.constraints_dv import (
+from src.optimization.constraints import ConstraintResult, _two_tier
+from src.optimization.constraints_dv import (
     DVUniformityConfig,
     compute_dv_constraint,
     dv_anderson_darling_statistic,

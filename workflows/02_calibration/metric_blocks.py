@@ -3,7 +3,7 @@
 For motivation work (DD-04 review): given the historical Cannonsville
 record, slide a T-year window across it and compute drought
 characteristics on each block. Project the resulting cloud onto each
-metric set in :data:`src.drought_metrics.PRESETS` and produce a 3D
+metric set in :data:`src.metrics.drought_metrics.PRESETS` and produce a 3D
 scatter figure per preset, plus a per-metric range/coefficient-of-variation
 table.
 
@@ -17,7 +17,7 @@ is one MOEA-FIND can usefully explore.
 Reproducible: deterministic (sliding-block extraction is deterministic),
 seed not used, configuration logged to ``config.json``. Output:
 ``outputs/02_calibration/metric_blocks/``. Plotting lives in
-``workflows/02_calibration/plots/metric_blocks.py``.
+``src/plotting/02_calibration/metric_blocks.py``.
 
 Usage::
 
@@ -39,17 +39,17 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.drought_metrics import (  # noqa: E402
+from src.metrics.drought_metrics import (  # noqa: E402
     PRESETS,
     REGISTRY,
     metric_labels,
     metric_names,
     resolve_metric_set,
 )
-from src.experiment_utils import prepare_data, compute_historical_ssi_chars  # noqa: E402
-from src.historical_blocks import resample_historical_blocks  # noqa: E402
-from src.paths import stage_output_dir  # noqa: E402
-from src.objectives import (  # noqa: E402
+from src.experiment import prepare_data, compute_historical_ssi_chars  # noqa: E402
+from src.hydrology.historical_blocks import resample_historical_blocks  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
+from src.metrics.objectives import (  # noqa: E402
     compute_ssi,
     compute_ssi_drought_characteristics,
     flows_to_series,
@@ -72,7 +72,7 @@ def compute_block_chars(
     SSI is computed by transforming each block through the prefitted
     ``ssi_calc`` so that all blocks share the same calibrated
     distribution (this is the convention the manuscript uses; see
-    DD-11 lock-in note in :func:`src.historical_blocks.compute_historical_block_chars`).
+    DD-11 lock-in note in :func:`src.hydrology.historical_blocks.compute_historical_block_chars`).
     The flows array is passed through so the chars dict includes
     ``q10_flow_neg`` for trace-level metrics.
     """

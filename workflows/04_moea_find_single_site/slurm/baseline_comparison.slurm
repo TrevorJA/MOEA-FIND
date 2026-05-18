@@ -7,6 +7,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
 #SBATCH --time=00:15:00
+#SBATCH --exclusive
 # Stage 04 / baseline_comparison -- compute only.
 # Manuscript: Fig 7. Reads stage 03 Kirsch library + stage 04 production
 # Pareto front; writes comparison_summary.json + pooled.npz.

@@ -17,9 +17,10 @@ not this index.*
 | `reference/framing_anchor.md` | Herman Axis II + Moallemi fork 3.2.2 framing; DMDU vocabulary. |
 | `reference/literature_review.md` | Five-domain structured literature review. |
 | `reference/reviewer_defenses.md` | Anticipated reviewer critiques and defensible responses (HC-1..HC-5). |
+| `reference/terminology.md` | Multi-reference glossary of stress-testing / scenario-neutral / scenario-discovery vocabulary; anchored on Fowler 2024 Table 1 with originating-source grounding. |
 | `planning/publication_plan.md` | Phase tracker (A–E), exit criteria, research questions (RQ1..RQ6). |
 | `planning/code_alignment_backlog.md` | Manuscript→code alignment items. |
-| `planning/experiment_plan.md` | Section 3.2 / 3.3 experiment design and pipeline pointer. |
+| `planning/experiment_plan.md` | Section 3.2 / 3.3 / 3.4 experiment design and pipeline pointer. |
 | `planning/code_state.md` | Snapshot of `src/` and `workflows/`; refresh after HPC pulls. |
 | `evidence/shell_vs_interior_diagnostic.md` | K-ball K=2..6 dimension sweep; DD-11 evidence. |
 
@@ -38,10 +39,16 @@ not this index.*
 | Code alignment backlog | `code_alignment_backlog.md` | `code_state.md` |
 | Borg as production algorithm | `design_decisions.md §DD-07` | `code_state.md` |
 | Herman Axis II + Moallemi fork 3.2.2 | `framing_anchor.md` | `manuscript_main_draft.md §4` |
-| Predecessors (Borgomeo, FIND, Wheeler) | `literature_review.md §1` | `literature/notes/` |
+| Predecessors (Borgomeo, FIND, Wheeler, Gozini) | `literature_review.md §1` | `literature/notes/` |
+| Terminology / glossary | `reference/terminology.md` | `literature_review.md` (full lineage) |
+| Synonym sets, vocabulary recommendations | `reference/terminology.md §11` | — |
 | §3.3 redesign (Pywr-DRB failure labels) | `experiment_plan.md` Part A | `reviewer_defenses.md` HC-2 |
+| §3.4 magnitude-varying sensitivity (DD-16) | `design_decisions.md` §DD-16 | `experiment_plan.md` Part D, `reviewer_defenses.md` HC-3 / Critique 14 |
 | HPC code state | `code_state.md` | `code_alignment_backlog.md` Item 10 |
 | DD-12 empirical audit protocol | `design_decisions.md §DD-12` | — |
+| Joint metric-and-T justification (DD-15) | `design_decisions.md §DD-15` | `experiment_plan.md` Stage-1..5 |
+| Trace length (T) decision | `design_decisions.md §DD-01` | DD-15 (in-flight numerical defense) |
+| Drought metric (K) decision | `design_decisions.md §DD-04` | DD-15 (in-flight numerical defense) |
 | Multi-site deferred | `publication_plan.md §4` | — |
 | Manuscript prose rules | `style_guide.md §2–5` | (overrides everything) |
 
@@ -54,12 +61,19 @@ achieve hazard-space coverage, not the reverse. When migrating any notes
 text into the manuscript, preserve this distinction. See
 `framing_anchor.md §4` and `manuscript_main_draft.md §4`.
 
+**DD-15 in flight (2026-04-29).** Joint numerical defense of T (trace
+length) and K (drought-metric set) is running on the HPC. Until Stage 3
+writes `outputs/02_calibration/decision_matrix/pareto_front_KxT.json`,
+do not commit prose claiming a specific T* or K* — DD-01 and DD-04 are
+both PENDING/PROVISIONAL.
+
 ---
 
 ## Other locations
 
 `literature/notes/` — short paper summaries: `borgomeo_2015.md`,
-`parametric_generation.md`, `wheeler_2025.md`, `zaniolo_2024_FIND.md`.
+`parametric_generation.md`, `wheeler_2025.md`, `zaniolo_2024_FIND.md`,
+`gozini_2026.md` (long-form, with `gozini_figures/` page renders).
 
 `scratch/` — figure-1 critique log, figure-1 spec, intro framing moves.
 Ephemeral; safe to delete once merged into a master doc.

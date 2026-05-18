@@ -4,7 +4,7 @@ Implements Criteria 1-5 from docs/moea_find_verification_criteria.md against
 a completed MOEA-FIND archive (results.json produced by stage 04). Produces a
 single ``verification_report.json`` plus the auxiliary numeric arrays needed
 by the paired plotting driver under
-``workflows/06_pywrdrb_reeval/plots/verify_drought_coverage.py``.
+``src/plotting/06_pywrdrb_reeval/verify_drought_coverage.py``.
 
 This driver writes only numerical artifacts -- no matplotlib calls.
 
@@ -42,19 +42,19 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.historical_blocks import (  # noqa: E402
+from src.hydrology.historical_blocks import (  # noqa: E402
     resample_historical_blocks,
     resample_historical_blocks_2d,
     compute_historical_block_chars,
 )
-from src.experiment_utils import prepare_data  # noqa: E402
-from src.objectives import (  # noqa: E402
+from src.experiment import prepare_data  # noqa: E402
+from src.metrics.objectives import (  # noqa: E402
     compute_ssi,
     flows_to_series,
     get_drought_metrics,
 )
-from src.constraints import _annual_totals, _lag1_ac  # noqa: E402
-from src.paths import stage_output_dir  # noqa: E402
+from src.optimization.constraints import _annual_totals, _lag1_ac  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
 
 STAGE = "06_pywrdrb_reeval"
 DRIVER = "verify_drought_coverage"

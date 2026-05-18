@@ -17,5 +17,5 @@ SLUGS=(
   residual_T20_nfe200000_s2026_constrained
 )
 IDX="${SLURM_ARRAY_TASK_ID}"
-python workflows/04_moea_find_single_site/plots/wrapper_mode_ablation.py \
+python src/plotting/04_moea_find_single_site/wrapper_mode_ablation.py \
     --mode "${MODES[$IDX]}" --slug "${SLUGS[$IDX]}"

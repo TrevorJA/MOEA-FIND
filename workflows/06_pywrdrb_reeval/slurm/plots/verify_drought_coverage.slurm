@@ -14,5 +14,5 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-python workflows/06_pywrdrb_reeval/plots/verify_drought_coverage.py \
+python src/plotting/06_pywrdrb_reeval/verify_drought_coverage.py \
     --slug residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad

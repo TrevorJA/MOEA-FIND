@@ -244,3 +244,89 @@ panel, with citations to the FFMP drought-level documentation and the
 Hashimoto et al. (1982) reliability metrics. No code change. [TREV-DECISION:
 whether the bridge architecture belongs in Methods or Supporting
 Information.]
+
+---
+
+## Item 12: DD-15 — joint metric-and-T justification (in flight 2026-04-29)
+
+**Issue:** DD-01 (trace length, currently `n_years_out = 20`) and DD-04
+(drought-metric `primary` preset) were each set by analogy to prior art
+without numerical defense. The manuscript currently writes both
+choices as if settled; they are not. DD-15 in
+`governance/design_decisions.md` defines the protocol; Stage 1
+complete and Stages 2–3 in flight as of 2026-04-29.
+
+**Alignment action when DD-15 lands:**
+
+1. **Code:** register the recommended K* tuple as a new preset in
+   `src/drought_metrics.py:PRESETS` (e.g. `"primary_v2"`). If K*
+   includes any metric not already in `REGISTRY`, add a `DroughtMetric`
+   entry with the appropriate `AntiIdealRule` per DD-04 lines 121–125
+   (HEADROOM_TIMES_MAX for unbounded; CONSTANT for fractions in [0,1]).
+2. **Code:** update `src/experiment_config.py:ExperimentConfig.metric_set`
+   default to the new preset name, and `n_years_out` default to T*.
+3. **Manuscript §2.4:** replace the precedent-based T justification
+   with the DD-15 joint defense (cite Stage-1 spread/cluster results,
+   Stage-2 KS/Frobenius fidelity, Stage-3 composite score). Replace
+   the §3.2 K-set sentence with the K* tuple and its hazard-axis
+   interpretation.
+4. **Manuscript SI:** add the four DD-15 figures (A: metric stability
+   across T; B: Spearman clustermap preservation; C: drought-space
+   coverage; D: exemplar traces) and the decision-matrix table.
+5. **DD-01 / DD-04:** flip status to SETTLED with the new pointer set.
+
+**Pointer:** `governance/design_decisions.md §DD-15`;
+`workflows/02_calibration/decision_matrix.py`;
+`outputs/02_calibration/decision_matrix/pareto_front_KxT.json` (output
+of record). No TREV-DECISION until Stage 3 produces (K*, T*).
+
+---
+
+## Item 13: DD-15c — T=1 metric reformulation (PENDING 2026-04-30)
+
+**Issue:** The K=4 short-block metric set
+`{djf_total_neg, summer_recession, aug_zscore, ond_total_neg}` shipped
+as `PRESETS["short_block_drb"]` in `src/drought_metrics.py` was
+exercised end-to-end at stage 04 (jobs 217986, 217988–217990). The
+MOEA hyperplane condition holds in all four ablation variants, but the
+archives exhibit four interrelated pathologies traceable to metric
+formulation:
+
+1. Sign-asymmetry — `_neg`/raw-flow metrics are unbounded on the
+   non-drought side, breaking the FIND assumption that $D^*$ bounds
+   the feasible set.
+2. Magnitude heterogeneity — cfs·month vs σ vs cfs/month means the
+   L1 norm conflates scales.
+3. Anti-ideal placement does not converge under iter (`summer_recession`
+   exceeded $D^*$ by 174% in iter1, 22% in iter2).
+4. Pareto archives include flood-shaped non-drought scenarios
+   (Pareto monthly flows reach 33,020 cfs vs historical max ≈ 7700).
+
+See `governance/design_decisions.md §DD-15c` for the full diagnostic.
+
+**Alignment action when DD-15c is resolved:**
+
+1. **Code:** replace `PRESETS["short_block_drb"]` with a bounded /
+   scale-comparable preset (e.g. empirical-CDF position metrics or
+   clipped z-scores). New metrics likely require corresponding
+   entries in `src/short_block_metrics.py:SHORT_BLOCK_METRIC_NAMES`
+   and `src/drought_metrics.py:REGISTRY`.
+2. **Anti-ideal placement:** if the reformulated metrics are
+   structurally bounded (e.g. CDF positions in $[0, 1]$), switch all
+   four to `AntiIdealRule.CONSTANT` with the natural upper bound;
+   `HEADROOM_TIMES_MAX` should not be used for T=1 metrics that
+   admit unbounded extension on either tail.
+3. **Plotter:** the K-agnostic
+   `src/plotting/04_moea_find_single_site/t1_archive_diagnostics.py`
+   already accepts arbitrary `objective_keys`; no change needed when
+   the preset is swapped.
+4. **Old archives:** retain as DD-15c "before" baseline; do not
+   propagate to stages 06 / 07 / 09 without per-objective filtering.
+5. **Manuscript:** §3.2 metric-set discussion stays deferred until
+   reformulation lands.
+
+**Pointer:** `governance/design_decisions.md §DD-15c`;
+`outputs/04_moea_find_single_site/run_moea_find/{residual,index}_T1_*/`;
+`figures/04_moea_find_single_site/run_moea_find/<slug>/t1_archive_diagnostics.pdf`.
+[TREV-DECISION: which bounded family — CDF, clipped z-score, or
+IQR-scaled deficit — to evaluate first.]

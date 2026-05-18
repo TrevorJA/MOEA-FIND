@@ -562,14 +562,16 @@ The SOW specification taxonomy is **four paradigms**, not three:
 - This is the DOMINANT paradigm in water resources (Hadjimichael 2020a, Quinn et al. 2018)
 - Hadjimichael 2020: explicitly dual-loop with outer LHS and inner G (either fixed generator with random replication, or the same generator with perturbed parameters)
 
-**(iv) Directed Hazard-Space Targeting (Borgomeo 2015, Zaniolo 2024, Wheeler 2025, MOEA-FIND)**
-- The outer loop is a DIRECTED search in hazard outcome space, not a sample of upstream uncertain factors
-- Each optimizer run targets a specific drought characteristic combination and produces one synthetic trace per run (Borgomeo, Zaniolo, Wheeler)
-- OR: a single MOEA run covers the entire feasible hazard region (MOEA-FIND)
-- There is no inner stochastic loop in the traditional sense (Borgomeo, Zaniolo, Wheeler). Each run produces one trace.
-- MOEA-FIND reformulates: it is compatible with an inner stochastic structure (multiple replicates conditional on outer drought characteristic targets), but the main paper demonstrates the single-run coverage version
-- The hazard space is emergent from parameter/SOW space, not a separate independent axis. Different outer SOW choices may produce overlapping hazard regions
-- Hadjimichael 2020: not addressed (the paper was published before Zaniolo FIND and Wheeler 2025)
+**(iv) Directed Inverse-Approach Targeting (Borgomeo 2015, Zaniolo 2024, Wheeler 2025, Gozini 2026, MOEA-FIND)**
+- The outer loop is a DIRECTED search via optimization, not a sample of upstream uncertain factors
+- Within paradigm (iv) there are two sub-modes distinguished by the *target* dimensions:
+    - **(iv-a) Marginal-moment targeting** — search target is the marginal monthly mean, SD, autocorrelation, cross-correlation, Hurst, or other first/second-moment statistics of the streamflow series. Decomposable per (location, month) when only mean/SD are targeted (Gozini 2026, Wheeler 2025 ACF/Hurst/cross-corr require global formulation). **Examples:** Borgomeo 2015 (single-site, user-specified statistics), Wheeler 2025 (multisite, ACF + Hurst + cross-corr in objective), Gozini 2026 (multisite, monthly mean + SD per cell, parametric Kirsch generator).
+    - **(iv-b) Hazard-outcome targeting** — search target is an *emergent* multi-month event-level property (drought severity, duration, frequency, time-in-drought fraction). Non-decomposable across months because the property is defined by joint sequencing across many months. **Examples:** Zaniolo 2024 FIND (single-site, single-objective, drought F/I/D), MOEA-FIND (single-site for now; multi-objective; SSI-derived event characteristics).
+- This decomposition is **load-bearing for the MOEA-FIND positioning**: Gozini (2026) explicitly closes the parametric variant of (iv-a) and identifies (iv-b) as their future work — "explicit persistence properties... such as limiting maximum drought duration or enforcing multi-year drought conditions through constraint-based modifications within the framework" (Gozini §4 Conclusion). This is a same-paradigm peer paper naming the MOEA-FIND research question as future work.
+- Each optimizer run in the simulated-annealing variants (Borgomeo, Zaniolo, Wheeler) targets one statistic combination and produces one synthetic trace per run; ensembles are 100 replicate runs against the same target. Gozini 2026 produces multiple scenarios per ensemble by sweeping a 17×17 deviation grid in 2-D control space, with one scenario per grid cell. MOEA-FIND produces one Pareto archive that tiles the entire feasible hazard region in K-D in a single run.
+- There is no inner stochastic loop in the traditional sense for any of the simulated-annealing or per-cell-DE variants. Each (target, run) pair produces one trace. MOEA-FIND reformulates: it is compatible with an inner stochastic structure (multiple replicates conditional on outer drought characteristic targets), but the main paper demonstrates the single-run coverage version.
+- The hazard space (in iv-b) is emergent from parameter/SOW space, not a separate independent axis. Different outer SOW choices may produce overlapping hazard regions. The *moment space* (in iv-a) is also emergent from parameter space, but with a closed-form mapping under Gaussian or lognormal generator assumptions, which is exactly what enables Gozini's per-cell decoupled DE and their compute claim.
+- Hadjimichael 2020: not addressed (the paper was published before Zaniolo FIND, Wheeler 2025, and Gozini 2026).
 
 ### Why This Taxonomy Matters for MOEA-FIND Positioning
 
@@ -579,7 +581,9 @@ The SOW specification taxonomy is **four paradigms**, not three:
 
 3. **The closest precedent is Bonham et al. (2024)**, but Bonham operates in input uncertainty space (outer-loop paradigm iii: LHS over demand and storage perturbations), not in hazard outcome space. MOEA-FIND's novel contribution is targeting the inner-loop realisation space directly in hazard coordinates.
 
-4. **Notation for Introduction text:** Use psi and s explicitly in paragraphs that describe the nested-loop structure. The introduction should establish that standard outer-loop sampling (paradigm iii: LHS over upstream factors) produces non-uniform coverage in hazard space when s_{i,j} ~ G(psi_i) is forward-propagated. MOEA-FIND reverses this relationship by defining target coverage in hazard space and searching the psi (or s directly, conditional on fixed psi) space to achieve it.
+4. **The closest same-paradigm peer is Gozini et al. (2026).** Gozini occupies the (iv-a) parametric corner of paradigm (iv) — same Kirsch (2013) generator, same multisite cross-correlation mechanism (shared matrix year), same explicit feasibility framing — but their search target dimensions are marginal monthly mean and SD per (j, k), the upstream-moment exposure in the Quinn et al. (2018) Figure 9 sense. MOEA-FIND occupies the (iv-b) hazard-outcome corner: emergent multi-month drought characteristics. Gozini's per-cell decoupled DE collapses the moment the search target couples months — exactly the regime MOEA-FIND occupies. Their §4 Conclusion names this as their future work. Use this asymmetry to position MOEA-FIND as the (iv-b) extension of the (iv-a) parametric inverse-approach lineage. See `manuscript/literature/notes/gozini_2026.md` for detailed notes.
+
+5. **Notation for Introduction text:** Use psi and s explicitly in paragraphs that describe the nested-loop structure. The introduction should establish that standard outer-loop sampling (paradigm iii: LHS over upstream factors) produces non-uniform coverage in hazard space when s_{i,j} ~ G(psi_i) is forward-propagated. MOEA-FIND reverses this relationship by defining target coverage in hazard space and searching the psi (or s directly, conditional on fixed psi) space to achieve it.
 
 ### Reference Anchors for Nested-Loop Positioning
 

@@ -19,5 +19,5 @@ SLUGS=(
   residual_T20_nfe200000_s101_constrained_cmdv_uniform_stad
 )
 IDX="${SLURM_ARRAY_TASK_ID}"
-python workflows/04_moea_find_single_site/plots/dv_uniformity_ablation.py \
+python src/plotting/04_moea_find_single_site/dv_uniformity_ablation.py \
     --arm "${ARMS[$IDX]}" --slug "${SLUGS[$IDX]}"

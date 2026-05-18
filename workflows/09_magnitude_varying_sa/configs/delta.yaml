@@ -1,0 +1,16 @@
+# Stage 09 -- Delta-only smoke / dev preset.
+#
+# Cheap settings for quickly iterating on the workflow without paying
+# full bootstrap cost. Use `all_methods.yaml` for production.
+methods:
+  - delta
+
+magnitude_axis: nyc_min_storage_frac
+response_form: exceedance
+
+percentiles: [0.10, 0.25, 0.50, 0.75, 0.90]
+
+n_bootstrap: 25
+seed: 42
+include_control: true
+delta_num_resamples: 25

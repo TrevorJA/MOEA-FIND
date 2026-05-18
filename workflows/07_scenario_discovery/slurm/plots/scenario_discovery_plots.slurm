@@ -20,7 +20,7 @@ export PYTHONUNBUFFERED=1
 
 PARETO_RESULTS="outputs/04_moea_find_single_site/run_moea_find/residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad/results.json"
 
-python workflows/07_scenario_discovery/plots/scenario_discovery_plots.py \
+python src/plotting/07_scenario_discovery/scenario_discovery_plots.py \
     --pareto-results "${PARETO_RESULTS}" \
     --manifest workflows/07_scenario_discovery/satisficing_manifest.yaml \
     --classifier-models gbt logreg \

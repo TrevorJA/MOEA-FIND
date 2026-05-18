@@ -9,7 +9,7 @@ Outputs under outputs/02_calibration/kirsch_convergence/:
     - config.json
     - convergence.json (metrics at each ensemble size x seed)
 
-Plotting lives in workflows/02_calibration/plots/kirsch_convergence.py.
+Plotting lives in src/plotting/02_calibration/kirsch_convergence.py.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.analysis import coverage_metrics  # noqa: E402
-from src.paths import stage_output_dir  # noqa: E402
+from src.discovery.analysis import coverage_metrics  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
 
 STAGE = "02_calibration"
 DRIVER = "kirsch_convergence"

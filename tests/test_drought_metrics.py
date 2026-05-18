@@ -1,9 +1,9 @@
-"""Unit tests for src.drought_metrics — registry, presets, anti-ideal placement."""
+"""Unit tests for src.metrics.drought_metrics — registry, presets, anti-ideal placement."""
 
 import numpy as np
 import pytest
 
-from src.drought_metrics import (
+from src.metrics.drought_metrics import (
     AntiIdealRule,
     DroughtMetric,
     PRESETS,

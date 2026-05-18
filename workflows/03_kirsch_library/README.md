@@ -65,6 +65,6 @@ slug for `subsample_baseline` encodes the source library slug plus
 ## Figures
 
 None at the stage level. Fig 7 is rendered by
-[workflows/04_moea_find_single_site/plots/baseline_comparison.py](../04_moea_find_single_site/plots/baseline_comparison.py)
+[src/plotting/04_moea_find_single_site/baseline_comparison.py](../04_moea_find_single_site/plots/baseline_comparison.py)
 and finalized for the manuscript by
 [workflows/99_manuscript_figures/make_figures.py](../99_manuscript_figures/make_figures.py).

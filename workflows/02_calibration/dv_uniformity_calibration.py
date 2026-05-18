@@ -11,14 +11,14 @@ Outputs, written under
 ``outputs/02_calibration/dv_uniformity_calibration/<dv_mode>/``:
 
     - ``calibrated_dv_tolerances.json`` -- consumed by
-      :meth:`src.constraints_dv.DVUniformityConfig.from_calibration_json`.
+      :meth:`src.optimization.constraints_dv.DVUniformityConfig.from_calibration_json`.
       Keyed as ``{site_label}_T{T_years}_{statistic}`` so L2-star and KS
       entries coexist.
     - ``bootstrap_samples.npz`` -- one array per statistic name.
     - ``config.json`` -- arguments the script was invoked with.
 
 Plots are produced separately by
-``workflows/02_calibration/plots/dv_uniformity_calibration.py``.
+``src/plotting/02_calibration/dv_uniformity_calibration.py``.
 
 Usage:
     python workflows/02_calibration/dv_uniformity_calibration.py \\
@@ -38,11 +38,11 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.constraints_dv import (  # noqa: E402
+from src.optimization.constraints_dv import (  # noqa: E402
     VALID_STATISTICS,
     statistic_fn,
 )
-from src.paths import stage_output_dir  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
 
 STAGE = "02_calibration"
 DRIVER = "dv_uniformity_calibration"

@@ -44,22 +44,22 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.experiment_utils import (  # noqa: E402
+from src.experiment import (  # noqa: E402
     compute_historical_ssi_chars,
     prepare_data,
 )
-from src.historical_blocks import (  # noqa: E402
+from src.hydrology.historical_blocks import (  # noqa: E402
     compute_historical_block_chars,
     resample_historical_blocks,
     resample_historical_blocks_2d,
 )
-from src.kirsch_utils import build_kirsch_generator  # noqa: E402
-from src.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
-from src.objectives import (  # noqa: E402
+from src.hydrology.kirsch_utils import build_kirsch_generator  # noqa: E402
+from src.hydrology.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
+from src.metrics.objectives import (  # noqa: E402
     compute_ssi_drought_characteristics,
     flows_to_series,
 )
-from src.paths import stage_output_dir  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
 
 STAGE = "02_calibration"
 DRIVER = "wrapper_fidelity"
@@ -302,7 +302,7 @@ def main():
     p.add_argument("--skip-phase-b", action="store_true",
                    help="Skip the drought-space coverage section (Phase B).")
     p.add_argument("--metric-set", default="primary",
-                   help="Drought metric set name from src.drought_metrics.PRESETS.")
+                   help="Drought metric set name from src.metrics.drought_metrics.PRESETS.")
     p.add_argument("--workers", type=int,
                    default=int(os.environ.get("SLURM_CPUS_PER_TASK", "1")),
                    help="Parallel worker count.")
@@ -422,7 +422,7 @@ def main():
         return
 
     print(f"  Phase B: drought characterisation ...")
-    from src.drought_metrics import metric_names, resolve_metric_set
+    from src.metrics.drought_metrics import metric_names, resolve_metric_set
     metric_set = resolve_metric_set(args.metric_set)
     objective_keys = metric_names(metric_set)
     objective_labels = tuple(f"{m.label} ({m.units})" for m in metric_set)

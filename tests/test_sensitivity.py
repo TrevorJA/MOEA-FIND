@@ -1,4 +1,4 @@
-"""Unit tests for src.sensitivity — Ishigami-function validation.
+"""Unit tests for src.sensitivity.sensitivity — Ishigami-function validation.
 
 The Ishigami function (Ishigami & Homma, 1990) is the standard SA test:
 
@@ -23,7 +23,7 @@ import pytest
 
 pytest.importorskip("SALib")
 
-from src.sensitivity import (  # noqa: E402
+from src.sensitivity.sensitivity import (  # noqa: E402
     METHODS,
     apply_method_selection_criterion,
     bootstrap_indices,

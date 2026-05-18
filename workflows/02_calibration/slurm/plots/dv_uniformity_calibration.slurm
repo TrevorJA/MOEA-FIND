@@ -16,4 +16,4 @@ moea_setup
 MODES=(residual index)
 DV_MODE="${MODES[${SLURM_ARRAY_TASK_ID}]}"
 
-python workflows/02_calibration/plots/dv_uniformity_calibration.py --dv-mode "${DV_MODE}"
+python src/plotting/02_calibration/dv_uniformity_calibration.py --dv-mode "${DV_MODE}"

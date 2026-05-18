@@ -81,7 +81,14 @@ envelope; see Criterion 2 for the canonical example.
 
 ## Baseline conventions
 
-- **T** = synthetic trace length in water years (current default: 20).
+- **T** = synthetic trace length in water years. Currently configured
+  default is 20, but this default is *under active reconsideration*
+  via the DD-15 joint metric-and-T justification protocol
+  (`manuscript/governance/design_decisions.md` §DD-15). The candidate
+  T grid for that sweep is `{5, 10, 20, 30}`. Until DD-15 lands the
+  recommended (K*, T*) tuple in
+  `outputs/02_calibration/decision_matrix/pareto_front_KxT.json`, this
+  doc continues to assume T = 20 for verification numbers.
 - **N_hist** = length of historical record in water years. At Cannonsville
   USGS 01436000, [src/experiment_utils.py:59](src/experiment_utils.py#L59)
   reports 73 water years.

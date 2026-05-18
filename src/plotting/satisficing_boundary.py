@@ -1,6 +1,6 @@
 """Decision-boundary and manifest-summary plots for the satisficing sweep.
 
-Consumes the artifacts produced by :mod:`src.satisficing_labels`:
+Consumes the artifacts produced by :mod:`src.discovery.satisficing_labels`:
     - A per-definition ``model.joblib`` (sklearn classifier)
     - A per-definition ``cv_predictions.csv`` (``y_true``, ``y_prob``)
     - The manifest summary DataFrame (``classifier_summary.csv``)

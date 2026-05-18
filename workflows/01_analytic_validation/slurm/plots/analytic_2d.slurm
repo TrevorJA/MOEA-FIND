@@ -14,6 +14,6 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-python workflows/01_analytic_validation/plots/analytic_2d.py \
+python src/plotting/01_analytic_validation/analytic_2d.py \
     --slug k2_nfe100000_eps0.060_s42 \
     --seed 42

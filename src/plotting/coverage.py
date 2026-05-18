@@ -17,7 +17,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
-from src.analysis import coverage_metrics
+from src.discovery.analysis import coverage_metrics
 from src.plotting.style import COLORS, apply_style
 
 FeatureSet = Tuple[str, np.ndarray, str]  # (label, points (n,d), color)

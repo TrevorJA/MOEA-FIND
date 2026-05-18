@@ -11,7 +11,7 @@ Outputs under ``outputs/01_analytic_validation/eps_nfe_sweep/``:
     - aggregate.json          (after --mode aggregate)
 
 The companion plotting driver
-``workflows/01_analytic_validation/plots/eps_nfe_sweep.py`` reads
+``src/plotting/01_analytic_validation/eps_nfe_sweep.py`` reads
 ``aggregate.json`` and renders the heatmap figure.
 """
 
@@ -34,10 +34,10 @@ sys.modules.setdefault("synhydro", _stub)
 sys.modules.setdefault("synhydro.droughts", _stub.droughts)
 sys.modules.setdefault("synhydro.droughts.ssi", _stub.droughts.ssi)
 
-from src.analysis import coverage_metrics  # noqa: E402
-from src.borg_runner import run_optimization  # noqa: E402
-from src.objectives import analytic_objectives  # noqa: E402
-from src.paths import stage_output_dir  # noqa: E402
+from src.discovery.analysis import coverage_metrics  # noqa: E402
+from src.optimization.borg_runner import run_optimization  # noqa: E402
+from src.metrics.objectives import analytic_objectives  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
 
 STAGE = "01_analytic_validation"
 DRIVER = "eps_nfe_sweep"

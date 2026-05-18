@@ -12,7 +12,7 @@ Both arms share objectives (DD-11), anti-ideal placement, DV length,
 NFE, and algorithm. Output written under
 ``outputs/04_moea_find_single_site/dv_uniformity_ablation/<arm>/<slug>/``.
 Figures are produced by the paired
-``workflows/04_moea_find_single_site/plots/dv_uniformity_compare.py``.
+``src/plotting/04_moea_find_single_site/dv_uniformity_compare.py``.
 """
 
 from __future__ import annotations
@@ -27,21 +27,21 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.experiment_config import DEFAULT_EXPERIMENT  # noqa: E402
-from src.kirsch_utils import build_kirsch_generator  # noqa: E402
-from src.constraint_loaders import load_hydrologic_constraints, load_dv_uniformity_constraints  # noqa: E402
-from src.experiment_utils import (  # noqa: E402
+from src.experiment.config import DEFAULT_EXPERIMENT  # noqa: E402
+from src.hydrology.kirsch_utils import build_kirsch_generator  # noqa: E402
+from src.optimization.constraint_loaders import load_hydrologic_constraints, load_dv_uniformity_constraints  # noqa: E402
+from src.experiment import (  # noqa: E402
     prepare_data,
     compute_historical_ssi_chars,
     compute_ssi_anti_ideal,
     extract_pareto_maxes,
     run_experiment,
-    make_variant_slug,
 )
-from src.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
-from src.constraints import ConstraintConfig  # noqa: E402
-from src.constraints_dv import DVUniformityConfig, VALID_STATISTICS  # noqa: E402
-from src.paths import stage_output_dir  # noqa: E402
+from src.hydrology.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
+from src.optimization.constraints import ConstraintConfig  # noqa: E402
+from src.optimization.constraints_dv import DVUniformityConfig, VALID_STATISTICS  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
+from src.io_paths.slugs import moea_slug  # noqa: E402
 
 STAGE = "04_moea_find_single_site"
 DRIVER = "dv_uniformity_ablation"
@@ -94,16 +94,18 @@ def main():
     constrained = hydrologic_cfg is not None or dv_cfg is not None
 
     # --- Output directory: arm subdir then variant slug ---
-    extra = {"cm": args.arm}
+    cons = "dv-l2" if args.arm == "dv_uniform" else "hydro"
+    extra = {}
     if args.arm == "dv_uniform":
         extra["st"] = args.statistic
-    slug = make_variant_slug(
+    slug = moea_slug(
         mode=args.mode,
         n_years=args.n_years,
         nfe=args.nfe,
         seed=args.seed,
-        constrained=constrained,
-        extra=extra,
+        ssi=args.ssi,
+        cons=cons,
+        extra=extra or None,
     )
     out = stage_output_dir(STAGE, DRIVER, f"{args.arm}/{slug}")
     print(f"[04/dv_uniformity_ablation] arm={args.arm} slug={slug}")

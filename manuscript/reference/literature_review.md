@@ -36,10 +36,120 @@ Extends the Borgomeo (2015) simulated annealing algorithm to multiple sites by e
 
 **Relevance:** Demonstrates that search-based target matching scales to multi-site basins and demonstrates Hurst coefficient inclusion as a long-range dependence constraint. MOEA-FIND uses shared bootstrap indices across sites as a simpler cross-site correlation mechanism and does not place cross-site structure in the optimization objective.
 
+### Gozini et al. (2026) — Parametric Inverse Approach for Multi-Site Stress Testing
+**Citation:** Gozini, H., Asadzadeh, M., Stadnyk, T., and Slota, P. (2026). Inflow generation for water system planning in multisite studies using target synthetic streamflow generation. Water Resources Research, 62, e2025WR042355.
+
+Closes the gap left by Borgomeo (2015) and Wheeler (2025) by applying the inverse approach to a *parametric* generator (Kirsch et al. 2013) instead of a non-parametric one. The decision variables are forcing percent changes `(M_F, SD_F)` per (month, location); the optimization is decoupled into one 2-D scalar L1 minimization per (month, location) cell using SciPy `differential_evolution`. The target tensor is constructed multiplicatively from a per-(month, location) seasonality layer and a per-scenario uniform deviation layer (Eq 1). The 14-location Winnipeg River Basin demonstration sweeps a 17 × 17 grid of deviations from `-80%` to `+80%` in `10%` increments (289 scenarios). A closed-form lognormal feasibility polygon, computed per (month, location), is enforced upstream of the optimization by snapping infeasible target cells onto the polygon boundary. Cross-site correlation is preserved by sharing the matrix year across all locations within a scenario, identical to the Quinn et al. (2018) Kirsch-Nowak convention. Daily disaggregation uses Nowak et al. (2010) k-nearest neighbors. Reported runtime is 3.22 hr / 100 scenarios on a 12-core laptop, compared to 169 hr for Wheeler (2025) and 4 hr for the single-site Borgomeo (2015).
+
+The paper provides the most thorough statistical-credibility audit in this lineage: Wilcoxon rank-sum and Levene's tests on monthly distributions, autocorrelation function to 50 months lag with RMSE against historical, pairwise cross-correlation RMSE, and the same battery applied separately to a stationary case (RH-O), an expansion-over-historical case (EH-O), and a GCM-anchored seasonality-shift case (EG-O). The stress-testing demonstration runs three performance metrics (annual + seasonal hydropower reliability, flood frequency, water-demand shortage) on the MB_HydroSim Manitoba Hydro operations model and produces success/failure response surfaces in 2-D (mean × SD) deviation space.
+
+**Relevance — common ground:** Same Kirsch (2013) generator core. Same Nowak (2010) k-NN disaggregator. Same shared-matrix-year cross-site correlation mechanism. Same paradigm-(iv) directed-search lineage as Borgomeo, Zaniolo, Wheeler. Same six-requirement framing for plausible scenarios (statistical credibility, target-property control, deep-uncertainty range, uniform exposure-space coverage, physical and mathematical feasibility, computational efficiency) that MOEA-FIND inherits from this lineage. Same explicit feasibility framing (their Figure 3 versus MOEA-FIND DD-10).
+
+**Relevance — distinction:** Gozini's exposure space is the 2-D plane of monthly mean and SD deviations per (month, location) — first/second moments of the marginal distribution at each cell. Their paper explicitly grounds this in Quinn et al. (2018) Figure 9, which they cite as the canonical hydrologic-stressor exposure space (their §1, page 2). MOEA-FIND's exposure space is the K-dimensional emergent drought-hazard characteristic space (SSI event severity, cumulative deficit, time-in-drought fraction; DD-04). The distinction is not cosmetic: their per-cell decoupled optimization works *only because the targets are per-cell marginal moments*. Any objective that couples months (drought duration, multi-month persistence, event-level severity) breaks the decomposition. Their §4 Conclusion explicitly identifies "explicit persistence properties... such as limiting maximum drought duration or enforcing multi-year drought conditions through constraint-based modifications" as future work, "though at the cost of increasing the computational effort to meet the targets" — this is the MOEA-FIND research question, named as future work in a same-paradigm peer paper. MOEA-FIND additionally uses Borg MM MOEA (DD-07) producing a Pareto archive that tiles the feasible drought-hazard region under the L1+anti-ideal construction (DD-11), rather than gridding a 2-D control plane.
+
+**Code:** MIT-licensed, public on GitHub and Zenodo (10.5281/zenodo.17195525). Vendored under `external_source_code/Gozinih-Target-Synthetic-Streamflow-Generator-fea78b9/` for offline reference. Written in Python with Numba `@njit` decorators on the Kirsch core; `joblib.Parallel` over locations; SciPy `differential_evolution` per (month, location). User-facing UX is `.xlsx` inputs and a `Run.bat` driver — practitioner-flavored, not HPC-flavored.
+
+**Detailed notes:** `manuscript/literature/notes/gozini_2026.md`.
+
 ### Herman et al. and Reed Group — MORDM Applications
 The Reed group (Cornell) extensively employs synthetic streamflow generation within the Many-Objective Robust Decision Making (MORDM) framework. Synthetic generation enables: (1) preserving effects of deeply uncertain factors, (2) evaluating policies across plausible futures, (3) discovering system vulnerabilities via ensemble simulation. OpenMORDM software documents this workflow.
 
 **Relevance:** MOEA-FIND fits naturally as the scenario generation component of MORDM, providing structured drought coverage that unstructured random ensembles lack.
+
+---
+
+## 1B. Scenario-Neutral / Climate Stress-Testing Lineage
+
+This section captures the parallel methodological lineage that runs through Prudhomme, Brown, Culley, Guo, and Fowler — the climate-stress-testing tradition. These authors share substantial vocabulary with the MORDM/Reed and MOEA-FIND literature but originate from a different community (Adelaide, Melbourne, Massachusetts, Wallingford) and use overlapping but not identical terminology. Several of these papers introduce or formalize terms (exposure space, scenario-neutral, climate attribute, perturbation, failure surface, critical climate condition) that MOEA-FIND must navigate carefully. Entries are ordered chronologically; the foundational originating-citation papers (Prudhomme 2010, Brown 2012) appear first, followed by methodological extensions (Guo 2018, Guo 2017, Culley 2021) and the modern review (Fowler 2024).
+
+### Prudhomme et al. (2010) — Scenario-Neutral Origin
+**Citation:** Prudhomme, C., Wilby, R.L., Crooks, S., Kay, A.L., and Reynard, N.S. (2010). Scenario-neutral approach to climate change impact studies: Application to flood risk. *Journal of Hydrology*, 390, 198-209. doi:10.1016/j.jhydrol.2010.06.043
+
+**Originating paper for the term "scenario-neutral."** Defines the approach (page 198 abstract): "based on sensitivity analyses of catchment responses to a plausible range of climate changes (rather than the time-varying outcome of individual scenarios), making it scenario-neutral." Frames the framework as separating two distinct elements: "the climate change projections (the hazard) from the catchment responsiveness (the vulnerability) expressed as changes in peak flows." This hazard / vulnerability separation is the conceptual bedrock of every subsequent scenario-neutral / stress-testing paper.
+
+Originating use of the **change factor (CF) / delta change / perturbation method** (page 201): the technique of applying GCM-derived percentage or absolute changes to a reference climatology to construct perturbed time series for impact modeling. Three steps: (1) define reference climatology, (2) calculate CFs from GCM grid-box closest to target, (3) add change to reference series.
+
+Introduces a vocabulary cluster of synonyms for safety margins: "climate change allowance," "design allowance," "headroom," and "freeboard" (page 199) — all referring to the precautionary increment built into engineering design for climate uncertainty.
+
+Demonstrates the framework by testing the UK Government's 20% flood-flow allowance against an ensemble of 17 GCMs and 3 SRES emission scenarios at two contrasting catchments (Enrick, Roding). Constructs response surfaces in 2-D (mean precipitation change × seasonality amplitude) and overlays GCM ensemble points to assess how many projections fall outside the 20% safety margin.
+
+**Relevance:** Foundational for vocabulary. Cite for: "scenario-neutral" (originating term), "hazard / vulnerability separation," "change factor / delta change / perturbation," "response surface" (early use), and the broader framing of bottom-up climate impact assessment as the inversion of top-down GCM-led assessment. Note that Prudhomme's response surface is in *climate-stressor* coordinates (mean precipitation × seasonality), placing this paper firmly in Fowler's "climate stressor mode" exposure space (Fowler 2024 page 2; Culley 2016 Figure 3 lineage).
+
+### Brown et al. (2012) — Decision Scaling Origin
+**Citation:** Brown, C., Ghile, Y., Laverty, M., and Li, K. (2012). Decision scaling: Linking bottom-up vulnerability analysis with climate projections in the water sector. *Water Resources Research*, 48, W09537. doi:10.1029/2011WR011212
+
+**Originating paper for the term "decision scaling."** Definition (page 1, paragraph 5): "decision-scaling refers to the use of a decision analytic framework to reveal the scaling of climate information that is needed to best inform the decision at hand." The premise inverts the conventional process: instead of starting with GCM projections and propagating them through models to estimate impacts, decision scaling starts with decision analysis to identify climate states that favor particular decisions, then uses GCM projections only afterward to estimate the relative probabilities of those climate states.
+
+Three-step methodology (Figure 1, pages 3-7):
+1. **Identification of climate concerns, hazards, and thresholds** — through stakeholder dialogue and historical record review. Build a "decision system model" relating climate inputs to system performance.
+2. **Risk discovery** — sensitivity analysis using a large stochastic input series (tens of thousands of years) to sample possible climate conditions. Develop a **climate response function** g(v_T) where Y_T = g(v_T): a surrogate model linking climate variables to performance indicators.
+3. **Tailoring climate information** — use GCM ensembles to estimate probabilities for the climate states identified in step 2.
+
+Introduces or formalizes several closely linked terms:
+- **Climate state** — "the range of climate variables that favors a particular decision option" (page 3, paragraph 15). The decision-theoretic ξ_i^C in equation (1).
+- **Decision threshold** — "a point where the optimal decision changes as a function of the climate conditions" (page 3, paragraph 15).
+- **Climate response function** — "a surrogate model, representing the results of a series of models in a computationally efficient form that links climate variables directly to performance indicators" (page 4, paragraph 25). g(v_T) where v_T is a reduced set of influential climate statistics.
+- **Climate space** — used (page 5, paragraph 21) for the multi-dimensional space of climate variables; this is the direct predecessor of Culley 2016's and Fowler 2024's "exposure space."
+
+Critical framing claim (page 2, paragraph 5): GCM projections "represent the irreducible lower bound on the range of climate uncertainty [Stainforth et al., 2007], they should not be used to identify risks, but rather as a potential prioritization weighting on risks." This is a foundational philosophical claim of the bottom-up paradigm — GCMs constrain probability assignments, not hazard identification.
+
+**Relevance:** Foundational for vocabulary. Cite for: "decision scaling" (originating term), "climate response function," "climate state," "decision threshold," and the inversion of the top-down workflow. Note that Brown's "climate space" is the direct predecessor of "exposure space" (Culley 2016 attribution in Fowler 2024 Table 1). The three-step decision-scaling workflow and the climate-response-function surrogate-modeling idea anchor much of the subsequent literature including the Reed-group EMODPS framing.
+
+### Fowler et al. (2024) — Climate Stress Testing Review
+**Citation:** Fowler, K.J.A., McMahon, T.A., Westra, S., Horne, A., Guillaume, J.H.A., Guo, D., Nathan, R., Maier, H.R., and John, A. (2024). Climate stress testing for water systems: Review and guide for applications. *WIREs Water*, 11(6), e1747. doi:10.1002/wat2.1747
+
+The most current practitioner-oriented review of climate stress testing for water systems. **Most importantly for MOEA-FIND, Table 1 (pages 3-4) is an explicit glossary of 18 terms** (adaptive capacity, baseline, bottom-up, decision scaling, deep uncertainty, exposure space, failure domain, failure point, failure surface, non-climate stressor, perturbation, scenario discovery, scenario-neutral, sensitivity analysis, stochastic sequence, stress testing, stressor, top-down, vulnerability analysis) with originating-citation references for each. This is the canonical anchor for the field's vocabulary and should be the primary reference for the MOEA-FIND glossary. The paper also provides:
+
+- A two-phase workflow proposal (minimal-scope first — perturb streamflow directly to find failure regions; expand-scope second — perturb climate with rainfall-runoff modeling and validate against phase 1) that is structurally analogous to MOEA-FIND's "search hazard space first, characterize ψ later" framing.
+- A four-way taxonomy of perturbation methods: (1) simple historical scaling, (2) resampled-baseline scaling, (3) perturbing stochastic generator parameters directly, (4) manipulation of a stochastic baseline. Gozini (2026), Wheeler (2025), and MOEA-FIND all live in (3); FIND (Zaniolo 2024) lives in (4).
+- A four-way taxonomy of stress-test result visualization: (i) performance vs. stressors via line/contour/colored regions; (ii) individual scenarios for in-depth discussion; (iii) summarizing failure domain (scenario discovery / PRIM / decision trees); (iv) characterizing failure boundary as a manifold (MORE/POMORE optimization, info-gap).
+- Tables S1, S2 list 82 stochastic generator models classified by stationary/non-stationary, single/multi-site, and timescale (annual through daily).
+- Box 2 contrasts streamflow-axes (Brown & Wilby 2012) vs. climate-axes (Mukundan et al. 2019) exposure-space designs — directly relevant to the modeling-scope decision.
+
+**Relevance:** Top-priority citation for MOEA-FIND's vocabulary and framing. Fowler 2024 provides the modern unified language of the bottom-up/scenario-neutral/stress-testing field. The forthcoming MOEA-FIND glossary should be grounded in Fowler 2024 Table 1 and cross-reference each definition to its originating citation. Note that "exposure space" in Fowler is the canonical term; "scenario-neutral space" (Culley 2021) and "response surface" are listed as synonymous. MOEA-FIND should pick one term and stick with it; recommend "exposure space" as the dominant usage.
+
+### Guo et al. (2018) — Inverse Approach to Rainfall Perturbation
+**Citation:** Guo, D., Westra, S., and Maier, H.R. (2018). An inverse approach to perturb historical rainfall data for scenario-neutral climate impact studies. *Journal of Hydrology*, 556, 877-890. doi:10.1016/j.jhydrol.2016.03.025
+
+(Note: Available-online date is 22 March 2016 in the journal's citation system, hence Gozini et al. 2026 cites this as "Guo et al. 2016.") Originates the **inverse approach** to scenario-neutral exposure-space generation: optimize the parameters of a parametric stochastic weather generator (WGEN) such that the resulting time series achieve user-specified target attribute values. Demonstrates evenly-distributed sampling over the exposure space at Adelaide, Australia. Compares forward approach (perturb generator parameters and accept the resulting attribute values) versus inverse approach (perturb generator parameters such that resulting attribute values match a regular target grid). This is the foundational "inverse approach" paper that Borgomeo (2015), Wheeler (2025), Gozini (2026), and MOEA-FIND all extend or reference. Six-pillar exposure-space-attribute framework: long-term mean, extremes (99th percentile), seasonality, intermittency (annual wet days, average dry-spell length), and inter-annual variability.
+
+**Relevance:** Direct origin of the term "inverse approach" as a method category. Fowler 2024 (page 19) lists three responses to the parameter→attribute non-linearity problem: (1) accept and live with non-uniform coverage (Dubrovsky et al. 2000), (2) post-process via quantile mapping (Steinschneider & Brown 2013), or (3) **apply an inverse approach via optimization** (Guo et al. 2018). MOEA-FIND should cite Guo 2018 (alongside Borgomeo 2015) as the originating inverse-approach reference, distinct from the Borgomeo/Wheeler nonparametric-resampling lineage.
+
+### Guo et al. (2017) — Hydro-Meteorological Attribute Sensitivity
+**Citation:** Guo, D., Westra, S., and Maier, H.R. (2017). Use of a scenario-neutral approach to identify the key hydro-meteorological attributes that impact runoff from a natural catchment. *Journal of Hydrology*, 554, 317-330. doi:10.1016/j.jhydrol.2017.09.021
+
+Extends Guo 2018's inverse approach by perturbing six hydro-meteorological attributes simultaneously (annual rainfall, winter rainfall, 99th-percentile daily rainfall, average dry-spell length, mean temperature, mean potential evapotranspiration) and applying Sobol' global sensitivity analysis to identify the dominant attributes for catchment runoff. Result: winter rainfall and annual rainfall dominate; PET-related variables matter little. Establishes that **the choice of which attributes to include in the exposure space is itself a consequential decision** — different attributes produce different sensitivity rankings.
+
+**Relevance:** Important precedent for the argument that scenario-neutral / stress-testing analysis is sensitive to the choice of exposure-space dimensions, not just to the points sampled within. This is a transferable critique to Gozini's 2-D (mean × SD) exposure space — a higher-dimensional analysis might reveal sensitivities masked by the moment-only framing. MOEA-FIND can reuse this argument structure for the moment-vs-event-level framing.
+
+### Culley et al. (2021) — Critical Climate Conditions Selection
+**Citation:** Culley, S., Maier, H.R., Westra, S., and Bennett, B. (2021). Identifying critical climate conditions for use in scenario-neutral climate impact assessments. *Environmental Modelling and Software*, 136, 104948. doi:10.1016/j.envsoft.2020.104948
+
+Formalizes the four-stage scenario-neutral workflow:
+1. Selection of climate attributes (axes of the scenario-neutral space)
+2. Development of perturbed attribute values (sampling locations in the space)
+3. Generation of climate-perturbed time series
+4. System performance assessment
+
+Develops a method for selecting **critical climate attributes** — narrowing a long candidate list (15 attributes in the Lake Como case study) to a shortlist of those most relevant for the system's performance, via sparse sensitivity-analysis screening. Demonstrates that different performance objectives (flood reliability vs. irrigation deficit at Lake Como) depend on different critical attributes, so the axes-selection stage must be tailored to the objective. Uses the term "scenario-neutral space" interchangeably with "exposure space" and "response surface."
+
+**Relevance:** Critical for the manuscript's framing of stage (i) — selection of axes for the exposure / hazard space. MOEA-FIND's use of three SSI-derived event-level characteristics (mean event severity, mean cumulative deficit, time-in-drought fraction) as the K=3 production hazard space (DD-04) is a stage-(i) decision in Culley 2021 terms. The Culley 2021 framework gives MOEA-FIND a credible methodological story for *why* these three axes were chosen — they are the system-relevant emergent characteristics for drought-driven failure modes — and a precedent for arguing that the axes-selection decision is itself a decision-relevant methodological fork.
+
+**Synonym alert:** Culley 2021 uses "scenario-neutral space" as a *new* synonym for what Brown 2012 called "climate space," what Quinn 2018 calls "exposure space," and what some literature calls "response surface." Fowler 2024 Table 1 lists "exposure space" as the canonical term. The MOEA-FIND glossary must catalogue these synonyms and explain the chosen usage.
+
+### Cross-paper terminology observations (Fowler, Guo, Culley)
+
+Reading the four papers as a set, several inter-author synonym/conflict patterns emerge that the glossary will need to address:
+
+1. **Exposure space / scenario-neutral space / response surface / climate space.** Fowler 2024 standardizes on "exposure space" with originating reference to Brown 2012 ("climate space"). Culley 2021 introduces "scenario-neutral space." All four terms refer to the same multi-dimensional space of stressors over which performance is mapped. **Recommended MOEA-FIND choice:** "exposure space," but acknowledge Culley's "scenario-neutral space" as field-current.
+
+2. **Climate attribute / climate variable / hydrologic stressor / hydro-meteorological attribute / stressor.** Guo 2017 says "hydro-meteorological attribute" (a specific statistic of a variable, e.g., 99th percentile of daily rainfall). Culley 2021 says "climate attribute" for the same concept. Fowler 2024 reserves "stressor" for the axis of the exposure space and "variable" for the underlying physical quantity. **Recommended MOEA-FIND choice:** "stressor" for an axis of the exposure space; "drought characteristic" for a hazard-space axis.
+
+3. **Bottom-up vs. scenario-neutral vs. stress testing.** Fowler 2024 §2 carefully distinguishes: bottom-up is the broader paradigm; stress testing is a specific type of bottom-up sensitivity analysis with focus on identifying failure modes; scenario-neutral is a specific name for stress-testing methods that operate independently of GCM scenarios (Prudhomme 2010). **Recommended MOEA-FIND choice:** "stress testing" for the workflow; "bottom-up" for the paradigm; "scenario-neutral" only when contrasting against top-down GCM-driven approaches.
+
+4. **Failure point / failure domain / failure surface.** Fowler 2024 codifies these (after Bryant & Lempert 2010, Guillaume et al. 2016): failure point is one combination of stressors that yields failure; failure domain is the contiguous region of the exposure space in which failure occurs; failure surface is the boundary between failure and non-failure regions. The Culley 2021 phrase "regions of success and failure" maps to "non-failure / failure domains."
+
+5. **Inverse approach.** Originates with Guo 2018 in the parametric weather-generator context. Borgomeo 2015 used the same method with a non-parametric generator without using the term "inverse." Fowler 2024 (page 19) lists "inverse approach" as one of three responses to the parameter→attribute non-linearity. Gozini 2026 adopts the term explicitly. **Recommended MOEA-FIND choice:** "inverse approach" is good shared vocabulary; cite Guo 2018 alongside Borgomeo 2015.
 
 ---
 
@@ -155,6 +265,35 @@ Drought is not a single phenomenon. Comprehensive monitoring integrates meteorol
 
 ### EMODPS Framework
 The Reed group's EMODPS pairs multi-objective evolutionary optimization of operating policies with visual analytics for tradeoff discovery. Generated scenarios stress-test optimized policies. This is the primary consumer of MOEA-FIND output.
+
+### Bryant and Lempert (2010) — Scenario Discovery Origin
+**Citation:** Bryant, B.P. and Lempert, R.J. (2010). Thinking inside the box: A participatory, computer-assisted approach to scenario discovery. *Technological Forecasting and Social Change*, 77, 34-49. doi:10.1016/j.techfore.2009.08.002
+
+**Originating paper for the term "scenario discovery."** Definition (page 1, abstract): "scenario discovery defines scenarios as a set of plausible future states of the world that represent vulnerabilities of proposed policies, that is, cases where a policy fails to meet its performance goals." The approach uses statistical or data-mining algorithms applied to large databases of simulation-model results to identify "easy-to-interpret combinations of uncertain model input parameters that are highly predictive of these policy-relevant cases."
+
+Formal four-step workflow (Figure 1, page 4):
+1. Generate data from a simulation model (typically by Latin Hypercube sampling over uncertain inputs).
+2. Identify candidate scenarios using PRIM (Patient Rule Induction Method, originating from Friedman & Fisher 1999) or CART (Classification and Regression Trees).
+3. Assess scenarios with diagnostics (resampling test, quasi-p-value test).
+4. Choose scenarios.
+
+Introduces or formalizes critical vocabulary:
+- **Vulnerability** (page 2, paragraph following Fig. 1 cite): "states of the world where a proposed policy may fail to meet its performance goals as well as those where a policy's performance deviates significantly from the optimum policy in that state of the world." Footnote 4: "The former represents an absolute performance measure and the latter a regret measure."
+- **States of the world** — used in the formal sense of Lempert decision theory: points in M-dimensional space of uncertain model input parameters.
+- **Cases of interest** (I_s) — set of cases where some policy-relevant criterion crosses a threshold; the targets of scenario discovery. Fowler 2024 Table 1 cites this exact term as the origin for "failure point."
+- **Box / box set** — a multi-dimensional region defined by constraints {a_j ≤ x_j ≤ b_j, j ∈ L_k} on a subset of input parameters; each box is interpreted as a scenario, the unconstrained parameters become the "key driving forces."
+- **Coverage / density / interpretability** — three measures of merit for scenario quality:
+    - *Coverage* = fraction of policy-relevant cases captured by the scenarios (analogous to recall/sensitivity in classification).
+    - *Density* = fraction of cases inside the box that are policy-relevant (analogous to precision/positive predictive value).
+    - *Interpretability* = qualitative measure approximated by counting parameters constrained per box; "highly interpretable box set should consist of on the order of three or four boxes, each with on the order of two or three constrained parameters" (page 5).
+- **Key driving forces** — input parameters that the algorithm constrains in defining a box; explicitly analogous to the "key driving forces" of the intuitive logics scenario school (Schwartz 1991).
+- **Deep (Knightian) uncertainty** (footnote 1, page 2): "the condition where parties to the decision do not know or do not agree on the system model relating actions to consequences or the prior probability distributions for input parameters to these system models."
+
+PRIM operation summary: a bump-hunting algorithm that iteratively peels off the worst-performing slice of the input space (steps 1–N "peeling") then refines by re-pasting (steps N+1 onwards). Generates a coverage-density tradeoff curve. Paper provides software (sdtoolkit R package) and is the canonical implementation reference for PRIM in scenario discovery.
+
+**Relevance:** Foundational citation for scenario discovery. Cite for: "scenario discovery" (originating term), "vulnerability" (formal definition), "cases of interest," "coverage," "density," "interpretability" (originating definitions), the formal four-step workflow, and the canonical PRIM implementation. The Hadjimichael et al. (2020 onward) and Bonham (2024, 2025) literature builds directly on this foundation. MOEA-FIND's coverage / density / interpretability framing in the Pareto archive sense is a deliberate reuse of this vocabulary at a different stage of the workflow (scenario generation rather than scenario discovery) — the manuscript should acknowledge the lineage to avoid reader confusion.
+
+**Synonym alert:** "Cases of interest" (Bryant & Lempert) ≈ "failure points" (Fowler 2024 Table 1). "States of the world" (Bryant & Lempert) ≈ "states of the world" (Hadjimichael 2020) but in different sampling contexts (parameter LHS vs. SOW + inner stochastic). "Box" / "box set" terminology is specific to Bryant & Lempert / PRIM and is not used in the Fowler 2024 / Reed-group lineage; that literature uses "scenario" directly.
 
 ### BART for Scenario Discovery
 **Citation:** Chipman, H.A., et al. (2010). BART: Bayesian additive regression trees. Annals of Applied Statistics, 4(1).
@@ -573,3 +712,100 @@ Citation corrections applied in this update:
 - Reed 2013 page range is 438 to 456 (verified).
 - Herman 2016 journal is *Journal of Water Resources Planning and
   Management* 142(11) article 04016050 (added).
+
+---
+
+## 9. Robustness Frameworks and DMDU Foundations
+
+This section captures foundational robustness-framework and decision-making-under-deep-uncertainty (DMDU) papers held in `manuscript/literature/` that previously lacked dedicated literature-review entries. Together with §1 (search-based generation), §1B (scenario-neutral lineage), §6 (scenario discovery / robustness), and §8 (extraction round 2026-04-14), this completes the lit-review coverage of the literature folder. These entries are intentionally tighter than §1B since the framing-anchor work (`framing_anchor.md`) treats Herman 2015 and Moallemi 2020 in depth already.
+
+### Herman et al. (2015) — Robustness Taxonomy
+**Citation:** Herman, J.D., Reed, P.M., Zeff, H.B., and Characklis, G.W. (2015). How Should Robustness Be Defined for Water Systems Planning under Change? *Journal of Water Resources Planning and Management*, 141(10), 04015012. doi:10.1061/(ASCE)WR.1943-5452.0000509
+
+**Foundational robustness-framework taxonomy paper.** Proposes a four-axis taxonomy (Fig. 1) for comparing robustness frameworks:
+1. **Alternative generation** — prespecified vs. searched; single- vs. multi-objective
+2. **Sampling of states of the world** — key factors assumed vs. discovered; prespecified scenarios vs. design of experiments; outward-from-expected vs. global sampling
+3. **Quantification of robustness measures** — expected value, satisficing, regret; domain criterion / uncertainty horizon; univariate vs. multivariate thresholds; deviation from best vs. baseline
+4. **Sensitivity analysis controls** — factor mapping (PRIM), factor prioritization (Sobol), local OAT
+
+Demonstrates on the Research Triangle case study (urban water supply, North Carolina) that methodological choices in this taxonomy lead to substantially different planning recommendations. Three load-bearing recommendations:
+1. "Decision alternatives should be searched rather than prespecified"
+2. "Dominant uncertainties should be discovered through sensitivity analysis rather than assumed"
+3. "A carefully elicited multivariate satisficing measure of robustness allows stakeholders to achieve their problem-specific performance requirements"
+
+Introduces or formalizes terms: **a posteriori decision support**, **generate-first-choose-later (GFCL)**, **states of the world (SOWs)**, **domain criterion satisficing measure**, **factor mapping**, **factor prioritization**, **multivariate satisficing**.
+
+**Relevance:** Foundational for vocabulary. Cite for: the four-axis robustness taxonomy (Axis II = "States of the world" is where MOEA-FIND lives), "states of the world / SOWs," "a posteriori decision support," "generate-first-choose-later," "domain criterion satisficing," "factor mapping" / "factor prioritization." See `framing_anchor.md` §1 for the full extraction of Herman 2015 vocabulary applied to the MOEA-FIND positioning.
+
+**Note:** Herman 2015 contemplates only two sub-modes in Axis II ("Prespecified Scenarios" and "Design of experiments") for sampling SOWs. MOEA-FIND argues that *directed search in hazard outcome space* is a third mode not contemplated by this taxonomy (see `framing_anchor.md` §7 paradigm-(iv)).
+
+### Maier et al. (2016) — DMDU Vocabulary Synthesis
+**Citation:** Maier, H.R., Guillaume, J.H.A., van Delden, H., Riddell, G.A., Haasnoot, M., and Kwakkel, J.H. (2016). An uncertain future, deep uncertainty, scenarios, robustness and adaptation: How do they fit together? *Environmental Modelling & Software*, 81, 154-164. doi:10.1016/j.envsoft.2016.03.014
+
+Multidisciplinary synthesis paper that articulates how five concepts fit together: **uncertain future**, **deep uncertainty**, **scenarios**, **robustness**, and **adaptation**. Argues these have generally been considered in isolation; this paper provides the connective tissue.
+
+Three complementary paradigms for modeling the future (§2, Fig. 1):
+1. **Use of best available knowledge** — single deterministic estimate of the future ("clear enough" future)
+2. **Quantification of future uncertainty** — probability distributions over inputs and parameters (aleatory or "Knightian-quantifiable" uncertainty)
+3. **Exploration of multiple plausible futures** — set of scenarios with no associated probability or even ranking (deep / Knightian uncertainty)
+
+Important typology distinctions:
+- **Aleatory (ontic) uncertainty** — intrinsic uncertainty of natural variability
+- **Epistemic uncertainty** — lack of knowledge, or ambiguity (multiple frames of reference)
+- **Deep uncertainty (Knightian)** — multiple plausible futures with no probability ranking
+
+Classification of scenario types (§4):
+- **Predictive scenarios** — forecast-style, typically with associated probabilities
+- **Exploratory scenarios** — descriptive of plausible futures (e.g., GCM scenarios)
+- **Normative scenarios** — back-cast or end-state-defined (e.g., visions, target conditions)
+
+**Relevance:** Foundational for vocabulary. Cite for: the three-paradigm classification of future modeling, the aleatory/epistemic/deep uncertainty distinction, and the predictive/exploratory/normative scenario typology. The Fowler et al. (2024) terminology (Table 1) draws partially on this lineage. Maier 2016 is the closest single paper that situates "deep uncertainty" in vocabulary alongside "scenario," "robustness," and "adaptation."
+
+### McPhail et al. (2018) — Robustness Metrics Comparison
+**Citation:** McPhail, C., Maier, H.R., Kwakkel, J.H., Giuliani, M., Castelletti, A., and Westra, S. (2018). Robustness Metrics: How Are They Calculated, When Should They Be Used and Why Do They Give Different Results? *Earth's Future*, 6, 169-191. doi:10.1002/2017EF000649
+
+Provides a unifying calculation framework for robustness metrics. Shows that different metrics lead to different rankings of decision alternatives. Categorizes metric suitability based on three decision-maker preferences:
+1. Decision context (absolute performance vs. regret)
+2. Risk aversion preference
+3. Performance-vs-variance vs. higher-moment focus
+
+Tests the framework on three case studies: Adelaide water supply (Australia), Lake Como (Italy), and the Rhine River (Netherlands).
+
+Introduces or formalizes the **Ψ–s notation** for the dual-loop nested structure: Ψ = {ψ_1, ψ_2, ...} are deeply uncertain outer factors; s_{i,j} ~ G(ψ_i) are inner stochastic realizations conditional on ψ_i. Robustness R(a) = Φ({y}) of decision a is aggregated across the inner ensemble for each outer ψ. This notation is the formal anchor for `framing_anchor.md` §7 paradigm-(iii)/(iv) decomposition.
+
+**Relevance:** Foundational for vocabulary. Cite for: the Ψ–s nested-loop notation, the absolute-vs-regret robustness distinction, and the three-axis decision-maker-preference taxonomy of robustness metrics. The McPhail 2018 framework explains why different aggregation choices lead to different rankings — directly supporting the Hadjimichael 2024 "consequential scenarios depend on aggregation choices" argument cited in MOEA-FIND §4.5.
+
+### Marchau et al. (2019) — Decision Making under Deep Uncertainty (DMDU)
+**Citation:** Marchau, V.A.W.J., Walker, W.E., Bloemen, P.J.T.M., and Popper, S.W. (Eds.) (2019). *Decision Making under Deep Uncertainty: From Theory to Practice*. Springer, Cham. doi:10.1007/978-3-030-05252-2
+
+Edited volume that consolidates the DMDU community's vocabulary and methodological framework. Open-access reference text for the field. Chapter coverage:
+- Robust Decision Making (RDM) — Lempert chapter
+- Dynamic Adaptive Policy Pathways (DAPP) — Haasnoot, Kwakkel, Walker chapter
+- Info-Gap Theory — Ben-Haim chapter
+- Engineering Options Analysis — de Neufville chapter
+- Many-Objective Robust Decision Making (MORDM) — Kasprzyk, Reed, Kirsch chapter
+- Decision Scaling — Brown chapter
+- Adaptive Delta Management — Bloemen, Hijdra, Kwakkel chapter
+
+**Relevance:** Reference text for vocabulary cross-references. Cite for: definitive expositions of RDM, DAPP, MORDM, and Decision Scaling as named methodological families. Useful for grounding "DMDU" as the umbrella term.
+
+### Herman et al. (2014) — MORDM Multistakeholder Origin
+**Citation:** Herman, J.D., Zeff, H.B., Reed, P.M., and Characklis, G.W. (2014). Beyond optimality: Multistakeholder robustness tradeoffs for regional water portfolio planning under deep uncertainty. *Water Resources Research*, 50(10), 7692-7713. doi:10.1002/2014WR015338
+
+Demonstrates that "optimal" Pareto-approximate solutions found under expected future conditions may suffer significant performance degradation under modest deviations in deeply uncertain factors. Introduces the **multistakeholder MORDM framework** that blends many-objective search with uncertainty analysis to discover key tradeoffs between water supply alternatives and their robustness. Demonstrated on the Research Triangle four-utility case study (Raleigh, Durham, Cary, Chapel Hill in North Carolina). Uses PRIM to identify which uncertain factors drive individual and collective vulnerabilities.
+
+**Relevance:** Cite for the multistakeholder MORDM framework as MOEA-FIND's downstream consumer. Demonstrates the explicit pairing of many-objective search with PRIM-based scenario discovery — the Reed-group canonical workflow that MOEA-FIND ensembles feed into.
+
+### Trindade et al. (2017) — MORDM Drought Risk Triggers
+**Citation:** Trindade, B.C., Reed, P.M., Herman, J.D., Zeff, H.B., and Characklis, G.W. (2017). Reducing regional drought vulnerabilities and multi-city robustness conflicts using many-objective optimization under deep uncertainty. *Advances in Water Resources*, 104, 195-209. doi:10.1016/j.advwatres.2017.03.023
+
+Advances the multistakeholder MORDM framework by showing that **adaptive risk-of-failure action triggers** must be stressed with a comprehensive sample of deeply uncertain factors *during* the computational search phase (not only after). Search-under-deep-uncertainty fundamentally changes perceived performance tradeoffs and substantially improves robustness compared to search-under-historical-conditions followed by ex-post robustness evaluation. Demonstrated on the Research Triangle case study. Uses MORDM to identify how cooperative water transfers, financial risk-mitigation tools, and coordinated regional demand management must be employed jointly.
+
+**Relevance:** Cite for the methodological advance that uncertainty must enter the search loop, not just the post-hoc evaluation. This argument applies analogously to MOEA-FIND: scenario generation must structure the hazard space *during* generation, not as a post-hoc filtering of a generic ensemble. The Trindade 2017 case study and the related Gold et al. (2023) and Lau et al. (2023) work form a continuous Reed-group methodological lineage that MOEA-FIND ensembles serve.
+
+### Hadjimichael et al. (2023) — Multi-Actor Multi-Impact Scenario Discovery (Preprint)
+**Citation:** Hadjimichael, A., Reed, P.M., Quinn, J.D., Vernon, C.R., and Thurber, T.B. (2023). Multi-actor, multi-impact scenario discovery of compound human-natural system futures. ESSOAr preprint (companion to Hadjimichael 2024).
+
+Preprint companion to Hadjimichael 2024 (which is fully covered in §8.1). Same FRNSIC framework. Mentioned here for completeness — the published version is the canonical citation; the preprint is held in `literature/` for the additional methodological detail and figures that did not survive editing for the published version. Defer to Hadjimichael 2024 entry in §8.1 for content.
+
+---

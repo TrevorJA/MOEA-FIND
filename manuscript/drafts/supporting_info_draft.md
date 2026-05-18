@@ -30,7 +30,14 @@ subsection that consumes them noted.
 | `02_calibration/wrapper_fidelity.py`                 | SI-5 (DV parameterisation, fidelity check) |
 | `02_calibration/wrapper_geometry.py`                 | SI-5 (DV parameterisation, geometry check) |
 | `02_calibration/kirsch_convergence.py`               | SI-4 (Borg convergence + Kirsch wall-clock) |
-| `02_calibration/metric_blocks.py`                    | SI-6 (metric set + SSI sensitivity) |
+| `02_calibration/metric_blocks.py`                    | SI-6 (legacy single-T metric blocks; superseded by DD-15) |
+| `02_calibration/metric_explorer.py`                  | SI-6 (legacy single-T screening; uses `src/metric_screening.py` shared API) |
+| `02_calibration/t_sensitivity_historical.py`         | SI-6 (Stage-1 per-T historical-block screening, DD-15) |
+| `02_calibration/t_sensitivity_aggregate.py`          | SI-6 (Stage-1 cross-T aggregation, DD-15) |
+| `03_kirsch_library/build_library_extended.py`        | SI-6 (Stage-2 28-metric Kirsch ensemble, DD-15) |
+| `02_calibration/t_sensitivity_kirsch_compare.py`     | SI-6 (Stage-2 KS / Frobenius / coverage, DD-15) |
+| `02_calibration/eval_cost_timing.py`                 | SI-6 (Stage-3 per-T eval cost regression, DD-15) |
+| `02_calibration/decision_matrix.py`                  | SI-6 (Stage-3 joint K × T matrix + (K*, T*), DD-15) |
 | `04_moea_find_single_site/wrapper_mode_ablation.py`  | SI-5 (DV parameterisation ablation) |
 | `04_moea_find_single_site/wrapper_mode_compare.py`   | SI-5 (DV parameterisation ablation) |
 | `04_moea_find_single_site/dv_uniformity_ablation.py` | SI-4b (constraint regime ablation) |
@@ -39,8 +46,9 @@ subsection that consumes them noted.
 | `06_pywrdrb_reeval/verify_drought_coverage.py`       | SI-10 (Pareto coverage verification — placeholder below) |
 | `07_scenario_discovery/satisficing_sweep.py`         | SI-11 (satisficing manifold + GBT — placeholder below) |
 | `07_scenario_discovery/scenario_discovery_plots.py`  | SI-11 (satisficing manifold + GBT) |
-| `08_nyc_sensitivity/run_sa.py`                       | SI-12 (NYC sensitivity to drought-hazard characteristics — placeholder below) |
-| `08_nyc_sensitivity/compare_methods.py`              | SI-12 (NYC sensitivity to drought-hazard characteristics) |
+| `08_nyc_sensitivity/run_sa.py`                       | SI-12a (NYC aggregate sensitivity to drought-hazard characteristics) |
+| `08_nyc_sensitivity/compare_methods.py`              | SI-12a (NYC aggregate sensitivity, cross-run comparison) |
+| `09_magnitude_varying_sa/run_mv_sa.py`               | SI-12b (NYC magnitude-varying sensitivity to drought-hazard characteristics; main-text §3.4 anchor) |
 
 Each subsection targets approximately 2-3 multi-panel figures (clean,
 multi-panel academic style) plus supporting tables. Subsections SI-9,
@@ -115,17 +123,59 @@ SI-10, and SI-11 below are new placeholders added with this mapping.
 
 ---
 
-## SI-6. Sensitivity to the drought metric set and SSI accumulation period
+## SI-6. Joint sensitivity to drought metric set and trace length T (DD-15)
 
-*Cross-referenced from main-text Section 2.1.*
+*Cross-referenced from main-text Sections 2.1 and 2.4.*
 
-> *Placeholder. The production metric set (DD-04) is the `primary`
-> preset; sensitivity to the alternative presets (`extreme_event`,
-> `trace_fdc`) and to the SSI accumulation period will be reported here
-> once HPC results land. The metric infrastructure
-> (`src/drought_metrics.py`) makes swapping metric sets a single CLI
-> flag, so the ablations are inexpensive in code-engineering time even
-> if HPC compute is gated.*
+> *Placeholder for the four DD-15 figures plus the decision-matrix
+> table. Once Stage 3 produces
+> `outputs/02_calibration/decision_matrix/pareto_front_KxT.json`, this
+> subsection will report:*
+>
+> 1. **Stage-1 distributional stability across T.** Per-metric
+>    descriptors (median, IQR, robust spread, skew) on stride-1
+>    historical T-blocks at T ∈ {5, 10, 20, 30}. Adjusted Rand Index
+>    of cluster memberships across T-pairs and Jaccard score of
+>    top-K sets vs the T=20 reference. **Key small-T finding:** the
+>    SSI-12 family of metrics zero-degenerates in ~43% of T=5 blocks
+>    (no SSI-12 events fit in 60 months) but the Tier-A/C/D/E/F
+>    candidate pool still produces hundreds of feasible strict-rung
+>    K=3 sets. **Key long-T finding:** at T=30, every block contains
+>    the historical-worst drought event, so `max_duration` and
+>    `worst_severity` saturate at their record values (informational;
+>    handled by the IQR>0 spread screen, which excludes them
+>    automatically when they cease to vary).
+> 2. **Stage-2 Kirsch fidelity at every T.** Per-metric Kolmogorov–
+>    Smirnov statistic comparing the 10 000-realization baseline-
+>    Kirsch distribution to the historical T-block distribution.
+>    Frobenius norm of the elementwise Spearman-correlation
+>    difference. L2-star discrepancy and NN-CV in each candidate
+>    K-set's subspace.
+> 3. **Stage-3 K × T decision matrix.** Five-component composite
+>    score (min robust spread × constraint-rung penalty × 1−max|ρ|
+>    × 1−KS_max × 1−norm cost) for the top-5 K=3 and top-5 K=4
+>    strict-rung sets at every surviving T. Per-T MOEA inner-loop
+>    median wall-time and projected 120-rank wall-time at NFE=200 000
+>    (preliminary timings as of 2026-04-29: T=5 → 92 ms/eval, T=10 →
+>    145 ms, T=20 → 248 ms, T=30 → 343 ms).
+> 4. **Figures A–D.** Figure A — metric stability across T (per-metric
+>    violin + Kirsch ridge + MOEA scatter, columns = T, rows = K* +
+>    runners-up). Figure B — three-panel Spearman clustermap (Hist,
+>    Kirsch, MOEA) at T*. Figure C — pairwise scatter matrix in K*
+>    space with L2-star + NN-CV side bar. Figure D — three exemplar
+>    MOEA-FIND traces with SSI-3 shading and Hist-IQR annotation.
+>
+> *Driver pointers:*
+> [`workflows/02_calibration/t_sensitivity_historical.py`](../../workflows/02_calibration/t_sensitivity_historical.py),
+> [`t_sensitivity_aggregate.py`](../../workflows/02_calibration/t_sensitivity_aggregate.py),
+> [`build_library_extended.py`](../../workflows/03_kirsch_library/build_library_extended.py),
+> [`t_sensitivity_kirsch_compare.py`](../../workflows/02_calibration/t_sensitivity_kirsch_compare.py),
+> [`eval_cost_timing.py`](../../workflows/02_calibration/eval_cost_timing.py),
+> [`decision_matrix.py`](../../workflows/02_calibration/decision_matrix.py),
+> and the four Stage-5 figure scripts under
+> [`src/plotting/02_calibration/`](../../src/plotting/02_calibration/).
+> Reference: `governance/design_decisions.md` §DD-15;
+> `planning/experiment_plan.md` Part C.
 
 ---
 
@@ -197,8 +247,10 @@ inputs).*
 
 ## SI-12. NYC sensitivity to drought-hazard characteristics
 
-*Cross-referenced from main-text Section 3.3 (paired with SI-11 as the
-sensitivity-analysis counterpart of the scenario-discovery results).*
+*Cross-referenced from main-text Sections 3.3 (scenario discovery)
+and 3.4 (magnitude-varying sensitivity).*
+
+### SI-12a. Aggregate sensitivity (Stage 08)
 
 > *Placeholder. Applies common global sensitivity analysis methods
 > (Delta moment-independent as the manuscript anchor; PAWN density-based
@@ -217,6 +269,33 @@ sensitivity-analysis counterpart of the scenario-discovery results).*
 > Target figure budget: 2-3 multi-panel SI figures (method comparison
 > tornadoes, cross-method and cross-outcome rank-correlation matrices,
 > sample-size convergence). Pending HPC production runs.*
+
+### SI-12b. Magnitude-varying sensitivity (Stage 09)
+
+> *Placeholder. Adapts Hadjimichael et al. (2020) magnitude-varying
+> sensitivity analysis to the drought-hazard factor space (the §3.4
+> headline). For each percentile τ ∈ {0.05, 0.10, …, 0.95} of an
+> operational hazard outcome, sensitivity indices for every
+> drought-hazard characteristic (plus a uniform-random control
+> factor) are computed and presented as a stacked-area panel.
+> Magnitude axes carried through MV-SA: NYC minimum combined storage
+> fraction (main-text §3.4 anchor), NYC drawdown days below 25%, and
+> Montague flow vulnerability (SI robustness panels). Conditional-
+> response variant on FFMP Level 6 (Pywr-DRB drought operating-rule
+> trigger) is reported as a supporting diagnostic. Triangulation
+> across Delta moment-independent, PAWN density-based, and RBD-FAST
+> establishes method consensus; bootstrap CIs (n=200, seed-pinned)
+> bound each percentile slice. The control factor establishes the
+> magnitude-varying noise floor. Driver:
+> [`workflows/09_magnitude_varying_sa/run_mv_sa.py`](../../workflows/09_magnitude_varying_sa/run_mv_sa.py);
+> plotting driver:
+> [`src/plotting/09_magnitude_varying_sa/run_mv_sa.py`](../../src/plotting/09_magnitude_varying_sa/run_mv_sa.py).
+> Target figure budget: 3 multi-panel SI figures (per-axis stacked
+> area with method panels; per-axis line plots with bootstrap
+> ribbons; conditional-response variant). Pending HPC production
+> run; proof-of-concept uses the existing K=3 archive
+> `residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad`. Re-run
+> on the post-DD-15 K* archive once Stage 4 lands.*
 
 ---
 

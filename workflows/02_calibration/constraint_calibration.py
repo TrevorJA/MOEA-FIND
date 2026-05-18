@@ -2,7 +2,7 @@
 
 Produces calibrated tolerances for every statistic used in MOEA-FIND
 plausibility constraints, at the target synthetic trace length (T=20
-years). The output JSON feeds ``src.constraints.ConstraintConfig`` and
+years). The output JSON feeds ``src.optimization.constraints.ConstraintConfig`` and
 drives all downstream HPC runs.
 
 The calibration compares two bootstrap distributions for each statistic:
@@ -33,7 +33,7 @@ Statistics:
 Compute only -- writes JSON / NPZ artifacts under
 ``outputs/02_calibration/constraint_calibration/``. The companion
 plotting driver
-``workflows/02_calibration/plots/constraint_calibration.py`` reads
+``src/plotting/02_calibration/constraint_calibration.py`` reads
 ``bootstrap_samples.npz`` and emits the histogram PDF.
 """
 
@@ -50,13 +50,13 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.experiment_utils import prepare_data  # noqa: E402
-from src.kirsch_utils import build_kirsch_generator  # noqa: E402
-from src.objectives import (  # noqa: E402
+from src.experiment import prepare_data  # noqa: E402
+from src.hydrology.kirsch_utils import build_kirsch_generator  # noqa: E402
+from src.metrics.objectives import (  # noqa: E402
     flows_to_series,
     make_ssi_calculator,
 )
-from src.paths import stage_output_dir  # noqa: E402
+from src.io_paths.paths import stage_output_dir  # noqa: E402
 
 STAGE = "02_calibration"
 DRIVER = "constraint_calibration"

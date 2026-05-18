@@ -13,7 +13,7 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-python workflows/08_nyc_sensitivity/plots/compare_methods.py \
+python src/plotting/08_nyc_sensitivity/compare_methods.py \
     --slugs sa__src=residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad__metric_set=h30e96e__methods=delta-pawn-rbd_fast__n_outcomes=4__s=42 \
     --labels primary \
     --method delta \

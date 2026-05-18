@@ -3,7 +3,7 @@
 #SBATCH --output=workflows/slurm_logs/%x_%j.out
 #SBATCH --error=workflows/slurm_logs/%x_%j.err
 #SBATCH --nodes=10
-#SBATCH --ntasks-per-node=30
+#SBATCH --ntasks-per-node=20
 #SBATCH --exclusive
 #SBATCH --time=04:00:00
 #SBATCH --account=tja73
@@ -35,14 +35,17 @@
 #     ranks 100-159 died silently at MPI startup; MPI Barrier in
 #     pywrdrb_bridge.py:758 hung waiting on the dead 60.
 #
-# Current (10x30 = 300 ranks --exclusive): each node hosts 30 ranks with
-# ~6.4 GB per-rank memory headroom (above the ~5 GB threshold that OOM'd
-# the 5x40 run). 3308 sims / 300 ranks ~= 11 sims per rank = 3 batches of 5,
-# well inside the 4 h walltime.
+# Two more failed attempts after the 5x40/8x20 attempts above:
+#   - 10x30 = 300 ranks --exclusive, batch_size=10: OOM at 7 min (rank 29)
+#   - 10x30 = 300 ranks --exclusive, batch_size=5:  OOM at 18 min (rank 27)
+# 30 ranks/node is over the per-rank memory cap on Hopper compute nodes
+# even with --exclusive. The 18-min attempt also showed an InfiniBand
+# connect error on c0009 ("connect() to 192.168.12.10:1031 failed").
 #
-# A batch_size=10 attempt at 300 ranks OOM'd in 7 min (rank 29 killed):
-# doubling per-batch sims doubles peak memory and exceeds the per-rank
-# headroom. batch_size=5 is the production cap on this hardware.
+# Current (10x20 = 200 ranks --exclusive): each node hosts only 20 ranks
+# with ~9.5 GB per-rank memory headroom -- the same density that ran
+# healthy at 5x20=100. 3308 sims / 200 ranks ~= 17 sims per rank = 4 batches
+# of 5, ~70 min wall for simulate. batch_size=5 is the production cap.
 
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup

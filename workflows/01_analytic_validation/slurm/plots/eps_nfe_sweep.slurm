@@ -14,4 +14,4 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-python workflows/01_analytic_validation/plots/eps_nfe_sweep.py
+python src/plotting/01_analytic_validation/eps_nfe_sweep.py

@@ -106,6 +106,24 @@ the upstream uncertainty factors, and forward propagation through the
 generator and simulation model produces the outcome ensemble from which
 robustness is inferred.
 
+The diagnostic question that motivates the sensitivity step in this
+literature is which uncertain factors most strongly condition the
+system response, and whether their importance ranking is itself
+state-dependent. Hadjimichael et al. (2020a) operationalise the
+state-dependence question through magnitude-varying sensitivity
+analysis (MV-SA), which decomposes sensitivity at each percentile of
+a stakeholder-relevant outcome rather than at a single aggregate
+metric. MV-SA is a powerful diagnostic but, as applied in that
+literature, it is implemented in the upstream parameter factor space
+and so inherits the parameter-to-outcome mapping limitations
+identified above: the factors whose importance MV-SA ranks are
+generator inputs and demand multipliers, not the drought
+characteristics that planners observe and that drive operational
+behaviour. In the framing this paper develops, the factor space for
+state-dependent sensitivity should itself be the drought
+characteristic space that vulnerability analysis evaluates. We
+return to this distinction in §2.6 and §3.4.
+
 This workflow has been productive for identifying which uncertain factors
 condition system vulnerability, but it has three connected limitations that
 bear directly on drought-driven vulnerability analysis. The first is that
@@ -203,15 +221,20 @@ drought characteristic region as a byproduct of the generation step.
 
 ### 2.1 Quantification of drought characteristics
 
-> *Pending prose. The production metric set is now settled
-> (DD-04, 2026-04-27): mean event severity, mean event cumulative
-> deficit, and time-in-drought fraction — three continuous metrics
-> spanning depth, volume, and persistence axes. Drought duration and
-> peak-severity month are excluded for clustering at discrete monthly
-> values. Reference: `governance/design_decisions.md` §DD-04;
-> implementation in `src/drought_metrics.py` (`primary` preset) and
-> `src/objectives.py`. Detailed prose deferred until §3 results
-> motivate the framing.*
+> *Pending prose. The production metric set is currently the
+> development default (`primary` preset: mean event severity, mean
+> event cumulative deficit, time-in-drought fraction) but the
+> numerical defense for the K-set choice — and the joint defense for
+> the trace length T — is in flight under DD-15 (joint metric-and-T
+> justification protocol; `governance/design_decisions.md` §DD-15).
+> Once Stage 3 produces `outputs/02_calibration/decision_matrix/pareto_front_KxT.json`,
+> this subsection will state the K* tuple, the T* trace length, and
+> the hazard-axis interpretation that the K* tuple supports. Drought
+> duration and peak-severity month remain excluded for clustering at
+> discrete monthly values and saturation at long T. Reference:
+> `governance/design_decisions.md` §§DD-04, DD-15;
+> `src/drought_metrics.py`, `src/objectives.py`,
+> `src/extended_drought_metrics.py` (28-metric candidate library).*
 
 ### 2.2 Generation of structured drought hazard ensembles
 
@@ -250,10 +273,23 @@ drought characteristic region as a byproduct of the generation step.
 
 ### 2.4 Delaware River Basin case study
 
-> *Pending. The Cannonsville single-site setup is the case study for this
-> paper. Multi-site DRB extension is deferred to a follow-up paper per
-> `planning/publication_plan.md` §4. Anti-ideal placement protocol pending
-> the verification described in DD-11 anti-ideal assumption.*
+> *Pending. The Cannonsville single-site setup is the case study for
+> this paper (USGS 01423000, water years 1950–2023). Multi-site DRB
+> extension is deferred to a follow-up paper per
+> `planning/publication_plan.md` §4. Anti-ideal placement protocol
+> pending the verification described in DD-11 anti-ideal assumption.*
+>
+> *T-length defense pending DD-15. Until Stage 3 of the joint
+> metric-and-T justification protocol writes
+> `outputs/02_calibration/decision_matrix/pareto_front_KxT.json`, do
+> not commit prose claiming a specific trace length. The candidate T
+> grid is `{5, 10, 20, 30}` water years; the user-preferred direction
+> is shorter T (5 or 10) on the grounds that short blocks better
+> correspond to distinct hazard periods, but the choice is contingent
+> on Stage-1 distributional stability, Stage-2 Kirsch fidelity, and
+> Stage-3 K × T composite scoring. Reference:
+> `governance/design_decisions.md` §DD-15;
+> `planning/experiment_plan.md` Part C.*
 
 ### 2.5 Coverage metrics and evaluation protocols
 
@@ -261,6 +297,31 @@ drought characteristic region as a byproduct of the generation step.
 > Pywr-DRB-derived operational outcome rather than a threshold on the same
 > drought characteristics that MOEA-FIND optimises over (HC-2 resolution).
 > The full protocol is in `planning/experiment_plan.md` Part A.*
+
+### 2.6 Magnitude-varying sensitivity analysis in drought hazard space
+
+> *Pending prose. The diagnostic complement to §3.3 scenario discovery.
+> Where §3.3 asks whether operational failure is *separable* in the
+> drought characteristic space, §3.4 asks which characteristic
+> dimensions *dominate* at each percentile of an operational hazard
+> outcome. The factor space is the optimised MOEA-FIND objective axes
+> (drought-hazard characteristics from the upstream archive, identical
+> to §3.3 / SI-12); the magnitude axis is a single Pywr-DRB outcome
+> from the metric bank, anchored on NYC minimum reservoir storage with
+> Montague vulnerability and drawdown-day variants supporting the SI
+> robustness panel.*
+>
+> *Following Hadjimichael et al. (2020) we compute three sensitivity
+> indices per percentile slice — Delta moment-independent, PAWN
+> density-based, and RBD-FAST — and triangulate. We depart from
+> Hadjimichael et al. by exchanging the parameter factor space for the
+> drought-characteristic factor space: the diagnostic question becomes
+> "which features of drought drive operational stress at each
+> severity?" rather than "which knobs drive shortage at each
+> severity?". A uniform-random control factor is appended so the
+> magnitude-varying noise floor is empirically visible. Reference:
+> `src/magnitude_varying_sa.py`, `workflows/09_magnitude_varying_sa/`,
+> `governance/design_decisions.md` §DD-16.*
 
 ---
 
@@ -287,6 +348,23 @@ drought characteristic region as a byproduct of the generation step.
 > operational outcome (HC-2 resolution); see `planning/experiment_plan.md`
 > Part A. Specific drought-characteristic features used as classifier inputs
 > are not yet final.*
+
+### 3.4 Magnitude-varying sensitivity in drought hazard space
+
+> *Pending. Compute driver and plot library are in place
+> (`workflows/09_magnitude_varying_sa/run_mv_sa.py`,
+> `src/plotting/magnitude_varying_sa.py`); proof-of-concept run will
+> use the existing K=3 archive
+> (`outputs/04_moea_find_single_site/.../residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad/`)
+> and the matching Pywr-DRB metric bank. Headline figure: the
+> three-method (Delta / PAWN / RBD-FAST) stacked-area panel of
+> drought-characteristic factor share against percentiles of NYC
+> minimum reservoir storage; companion figure: per-factor sensitivity
+> with bootstrap CI ribbons and the control noise floor. Re-run on the
+> post-DD-15 K* archive once the Stage 4 confirmatory MOEA-FIND run
+> lands. SI-12 carries the Montague-vulnerability and drawdown-day
+> robustness panels and the conditional-response variant on FFMP
+> Level 6.*
 
 ---
 

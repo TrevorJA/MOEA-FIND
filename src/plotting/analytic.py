@@ -27,7 +27,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
-from src.analysis import (
+from src.discovery.analysis import (
     coverage_metrics,
     generate_lhs_samples,
     generate_sobol_samples,

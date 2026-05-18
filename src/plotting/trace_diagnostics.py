@@ -143,7 +143,7 @@ def plot_autocorrelation_comparison(
             ``T_years * 12``).
         historical_blocks_1d: List of 1D historical monthly blocks at the
             same block length as ``synthetic_traces``. See
-            :func:`src.historical_blocks.resample_historical_blocks`.
+            :func:`src.hydrology.historical_blocks.resample_historical_blocks`.
         max_lag: Maximum lag to compute.
         trace_labels: Optional labels for each trace (used only when
             there are <=5 synthetic traces).
@@ -201,7 +201,7 @@ def plot_seasonal_cycle_comparison(
         synthetic_traces_2d: List of (T_years, 12) synthetic arrays.
         historical_blocks_2d: List of (T_years, 12) historical blocks,
             same length as synthetic. See
-            :func:`src.historical_blocks.resample_historical_blocks_2d`.
+            :func:`src.hydrology.historical_blocks.resample_historical_blocks_2d`.
         figsize: Figure size.
 
     Returns:

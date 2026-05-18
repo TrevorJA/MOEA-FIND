@@ -8,7 +8,7 @@ without any SynHydro import.
 import numpy as np
 import pytest
 
-from src.kirsch_wrapper import KirschBorgWrapper
+from src.hydrology.kirsch_wrapper import KirschBorgWrapper
 
 
 # ---------------------------------------------------------------------------

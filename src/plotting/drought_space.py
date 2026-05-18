@@ -126,7 +126,7 @@ def plot_scatter_with_marginals(
         anti_ideal: Optional anti-ideal.
         historical_cloud: Optional ``(n_blocks, 2)`` per-block
             drought characteristics from
-            :func:`src.historical_blocks.compute_historical_block_chars`.
+            :func:`src.hydrology.historical_blocks.compute_historical_block_chars`.
             Drawn as open grey markers in the main panel and as a
             step-histogram on each marginal so the Pareto archive can
             be compared against the historical T-year block
@@ -212,7 +212,7 @@ def plot_drought_space_3d(
         historical_point: Optional 3-D single-window historical point.
         historical_cloud: Optional ``(n_blocks, 3)`` per-block historical
             drought characteristics from
-            :func:`src.historical_blocks.compute_historical_block_chars`.
+            :func:`src.hydrology.historical_blocks.compute_historical_block_chars`.
         title: Figure title prefix (appended with hyperplane + D* info).
         figsize: Figure size.
         include_anti_ideal: When True the anti-ideal marker is drawn and
@@ -651,7 +651,7 @@ def plot_trace_with_ssi_events(
     """
     import pandas as pd
     from src.plotting.trace_diagnostics import _detect_drought_events
-    from src.objectives import flows_to_series
+    from src.metrics.objectives import flows_to_series
 
     if color is None:
         color = COLORS["empirical"]
