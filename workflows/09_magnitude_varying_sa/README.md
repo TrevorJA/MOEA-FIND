@@ -1,5 +1,6 @@
 # Stage 09 -- Magnitude-Varying Sensitivity Analysis (MV-SA)
 
+
 Adaptation of Hadjimichael et al. (2020) MV-SA to the MOEA-FIND
 diagnostic question: at each percentile of an operational hazard
 outcome (the *magnitude axis*, e.g. NYC minimum reservoir storage),
@@ -49,14 +50,12 @@ every percentile.
 - `plots/run_mv_sa.py` -- plotting driver. Emits PDFs under
   `figures/09_magnitude_varying_sa/run_mv_sa/<slug>/`.
 - `slurm/run_mv_sa.slurm` -- 19-rank MPI compute job (1 hr / 32 GB).
-- `slurm/plots/run_mv_sa.slurm` -- 2-CPU/4-GB/30-minute plots job.
 
 ## Usage
 
 ```bash
 # Production (19-rank MPI):
 sbatch workflows/09_magnitude_varying_sa/slurm/run_mv_sa.slurm
-sbatch workflows/09_magnitude_varying_sa/slurm/plots/run_mv_sa.slurm
 
 # Dev / smoke (login node OK; trivially serial):
 python workflows/09_magnitude_varying_sa/run_mv_sa.py \

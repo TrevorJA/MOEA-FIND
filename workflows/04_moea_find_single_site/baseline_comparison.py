@@ -3,7 +3,7 @@
 Computes coverage metrics for the stage 03 Kirsch random library against
 the stage 04 MOEA-FIND Pareto front and writes a numerical summary.
 Figures are produced separately by
-``src/plotting/04_moea_find_single_site/baseline_comparison.py``.
+``workflows/99_supporting_info_figures/baseline_comparison.py``.
 
 Outputs under ``outputs/04_moea_find_single_site/baseline_comparison/``:
     config.json

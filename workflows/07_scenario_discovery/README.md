@@ -1,5 +1,6 @@
 # Stage 07 -- Scenario discovery
 
+
 ## Purpose
 
 Post-process the per-realization metric bank from stage 06 into binary

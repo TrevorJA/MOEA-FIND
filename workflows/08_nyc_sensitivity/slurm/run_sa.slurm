@@ -11,7 +11,6 @@
 #SBATCH --partition=normal
 # Stage 08 / run_sa -- compute only.
 # Manuscript: SI-12 (NYC sensitivity to drought-hazard characteristics).
-# Pair with: workflows/08_nyc_sensitivity/slurm/plots/run_sa.slurm
 #
 # Bank/chars paths are baked: change them by editing this file, not via --export.
 

@@ -1,5 +1,6 @@
 # Stage 03 -- Kirsch library + subsample baseline
 
+
 ## Purpose
 
 Build a large Kirsch-Nowak library (~10K traces) and produce LHS / Sobol /
@@ -65,6 +66,6 @@ slug for `subsample_baseline` encodes the source library slug plus
 ## Figures
 
 None at the stage level. Fig 7 is rendered by
-[src/plotting/04_moea_find_single_site/baseline_comparison.py](../04_moea_find_single_site/plots/baseline_comparison.py)
+`workflows/99_supporting_info_figures/baseline_comparison.py`
 and finalized for the manuscript by
 [workflows/99_manuscript_figures/make_figures.py](../99_manuscript_figures/make_figures.py).

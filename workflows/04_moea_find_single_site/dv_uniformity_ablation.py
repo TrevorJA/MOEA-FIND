@@ -12,7 +12,7 @@ Both arms share objectives (DD-11), anti-ideal placement, DV length,
 NFE, and algorithm. Output written under
 ``outputs/04_moea_find_single_site/dv_uniformity_ablation/<arm>/<slug>/``.
 Figures are produced by the paired
-``src/plotting/04_moea_find_single_site/dv_uniformity_compare.py``.
+``workflows/99_supporting_info_figures/dv_uniformity_compare.py``.
 """
 
 from __future__ import annotations

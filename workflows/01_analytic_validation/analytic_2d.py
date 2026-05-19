@@ -2,7 +2,7 @@
 
 Runs the 2-objective Manhattan-norm analytic problem under MM Borg MOEA
 (launched via MPI) and writes numerical artifacts only. Figures are
-produced separately by ``src/plotting/01_analytic_validation/analytic_2d.py``.
+produced separately by ``workflows/99_supporting_info_figures/analytic_2d.py``.
 
 Outputs under ``outputs/01_analytic_validation/analytic_2d/<slug>/``:
     - config.json  (invocation record)

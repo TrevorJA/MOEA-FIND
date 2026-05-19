@@ -13,7 +13,7 @@ Optimization is MM Borg MOEA (launched via MPI). Per-K outputs under
     - samples.npz  (raw point clouds for downstream plotting)
 
 The companion plotting driver
-``src/plotting/01_analytic_validation/dimension_sweep.py`` reads
+``workflows/99_manuscript_figures/dimension_sweep.py`` reads
 every ``k{K}`` directory and produces the K=1..6 sweep figure.
 """
 

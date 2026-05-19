@@ -1,5 +1,6 @@
 # Stage 08 -- NYC sensitivity analysis
 
+
 ## Purpose
 
 Apply common global sensitivity analysis (SA) methods to the structured
@@ -42,7 +43,7 @@ all-methods run plus single-method re-runs.
 
 Compute drivers write only numerical artifacts under
 `outputs/08_nyc_sensitivity/<driver>/<slug>/`. Figures are produced by
-the paired plotting drivers under [plots/](plots/) which read those
+the centralized figure jobs in workflows/99_*_figures/ which read those
 artifacts and write to `figures/08_nyc_sensitivity/<driver>/<slug>/`.
 Re-rendering a figure never requires re-running SA.
 
@@ -60,8 +61,6 @@ the other.
 
 | Compute slurm | Plotting slurm |
 |---|---|
-| `slurm/run_sa.slurm` | `slurm/plots/run_sa.slurm` |
-|                      | `slurm/plots/compare_methods.slurm` |
 
 All slurm scripts are self-contained -- arguments are baked into the
 slurm file. Variant changes are made by editing the slurm script, not

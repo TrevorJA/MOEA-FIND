@@ -4,7 +4,7 @@ Implements Criteria 1-5 from docs/moea_find_verification_criteria.md against
 a completed MOEA-FIND archive (results.json produced by stage 04). Produces a
 single ``verification_report.json`` plus the auxiliary numeric arrays needed
 by the paired plotting driver under
-``src/plotting/06_pywrdrb_reeval/verify_drought_coverage.py``.
+``workflows/99_supporting_info_figures/verify_drought_coverage.py``.
 
 This driver writes only numerical artifacts -- no matplotlib calls.
 

@@ -23,7 +23,7 @@ trivially reduces to serial.
 
 Compute-only driver: writes parquet + JSON under
 ``outputs/09_magnitude_varying_sa/run_mv_sa/<slug>/``. Figures are
-emitted by ``src/plotting/09_magnitude_varying_sa/run_mv_sa.py``.
+emitted by ``workflows/99_supporting_info_figures/run_mv_sa.py``.
 
 Outputs (``outputs/09_magnitude_varying_sa/run_mv_sa/<slug>/``):
 

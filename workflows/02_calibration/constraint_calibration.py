@@ -33,7 +33,7 @@ Statistics:
 Compute only -- writes JSON / NPZ artifacts under
 ``outputs/02_calibration/constraint_calibration/``. The companion
 plotting driver
-``src/plotting/02_calibration/constraint_calibration.py`` reads
+``workflows/99_supporting_info_figures/constraint_calibration.py`` reads
 ``bootstrap_samples.npz`` and emits the histogram PDF.
 """
 

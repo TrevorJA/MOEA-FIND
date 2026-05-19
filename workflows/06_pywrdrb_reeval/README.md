@@ -1,5 +1,6 @@
 # Stage 06 -- Pywr-DRB policy re-evaluation
 
+
 ## Purpose
 
 Re-evaluate each Pareto drought scenario from stage 04 through Pywr-DRB
@@ -31,7 +32,7 @@ expensive step (hours on a full archive) and feeds stage 07.
 
 Compute drivers write only numerical artifacts under
 `outputs/06_pywrdrb_reeval/<driver>/<src_slug>/`. Figures are produced
-by the paired plotting drivers under [plots/](plots/) which read those
+by the centralized figure jobs in workflows/99_*_figures/ which read those
 artifacts and write to
 `figures/06_pywrdrb_reeval/<driver>/<src_slug>/`. Re-rendering a figure
 never requires re-running the simulation.
@@ -45,7 +46,6 @@ so stage 06 outputs pair 1:1 with their stage 04 archive on disk.
 | Compute slurm | Plotting slurm |
 |---|---|
 | `slurm/policy_reeval.slurm`           | -- (figures emitted by stage 07)                |
-| `slurm/verify_drought_coverage.slurm` | `slurm/plots/verify_drought_coverage.slurm`     |
 
 `policy_reeval` requests 3 nodes x 30 ntasks-per-node = 90 ranks (Stages
 2-3 are MPI-parallel; Stages 1 and 4 run serially on rank 0).

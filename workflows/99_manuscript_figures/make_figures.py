@@ -417,7 +417,7 @@ def fig07_gbt_hazard_discovery() -> bool:
     """Figure 7 (§3.3) - DRB scenario discovery (satisficing map).
 
     Repackages the satisficing classification figure emitted by
-    ``src/plotting/07_scenario_discovery/scenario_discovery_plots.py``
+    ``workflows/99_manuscript_figures/scenario_discovery_plots.py``
     (under ``figures/07_scenario_discovery/scenario_discovery_plots/<slug>/``)
     as the manuscript-ordered ``fig07_gbt_hazard_discovery.pdf``.
     """

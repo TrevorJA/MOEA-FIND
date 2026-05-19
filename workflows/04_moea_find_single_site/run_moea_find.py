@@ -3,7 +3,7 @@
 Couples MM Borg MOEA to the validated
 SynHydro Kirsch-Nowak generator via :class:`KirschBorgWrapper`. Writes
 only numerical artifacts; figures are produced by the paired plotting
-driver ``src/plotting/04_moea_find_single_site/run_moea_find.py``.
+driver ``workflows/99_manuscript_figures/run_moea_find.py``.
 
 Outputs under ``outputs/04_moea_find_single_site/run_moea_find/<slug>/``:
     config.json

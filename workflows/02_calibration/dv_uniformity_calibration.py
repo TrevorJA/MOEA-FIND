@@ -18,7 +18,7 @@ Outputs, written under
     - ``config.json`` -- arguments the script was invoked with.
 
 Plots are produced separately by
-``src/plotting/02_calibration/dv_uniformity_calibration.py``.
+``workflows/99_supporting_info_figures/dv_uniformity_calibration.py``.
 
 Usage:
     python workflows/02_calibration/dv_uniformity_calibration.py \\

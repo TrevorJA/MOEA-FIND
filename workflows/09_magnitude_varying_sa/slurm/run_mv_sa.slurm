@@ -18,7 +18,6 @@
 # startup (job 217414); single-node exclusive sidesteps that.
 # Stage 09 / run_mv_sa -- magnitude-varying sensitivity analysis (MPI).
 # Manuscript: §3.4 / §4.x (paired with §3.3 scenario discovery).
-# Pair with: workflows/09_magnitude_varying_sa/slurm/plots/run_mv_sa.slurm
 #
 # 19 MPI ranks, one per percentile in the default {0.05, 0.10, ..., 0.95}
 # grid. Each rank computes its assigned percentile slices independently;

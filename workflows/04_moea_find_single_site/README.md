@@ -1,5 +1,6 @@
 # Stage 04 -- Single-site MOEA-FIND
 
+
 ## Purpose
 
 Production single-site Cannonsville MOEA-FIND plus the three SI
@@ -36,10 +37,6 @@ Figures are produced by paired plotting drivers under [plots/](plots/):
 
 | Compute slurm | Cores | Plot slurm |
 |---|---|---|
-| `slurm/run_moea_find.slurm`             | 120 (3x40 MPI) | `slurm/plots/run_moea_find.slurm` |
-| `slurm/baseline_comparison.slurm`       | 1   | `slurm/plots/baseline_comparison.slurm` |
-| `slurm/dv_uniformity_ablation.slurm`    | 6 tasks x 120 cores, throttle %3 (max 360) | `slurm/plots/dv_uniformity_compare.slurm` |
-| `slurm/wrapper_mode_ablation.slurm`     | 4 tasks x 120 cores, throttle %3 (max 360) | `slurm/plots/wrapper_mode_compare.slurm` |
 | `slurm/event_level.slurm`               | 32  | -- |
 
 All slurms are self-contained: arguments are baked in. Variant changes

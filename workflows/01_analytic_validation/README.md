@@ -1,5 +1,6 @@
 # Stage 01 -- Analytic validation
 
+
 ## Purpose
 
 Demonstrate the L1 + epsilon-tile MOEA-FIND device on a synthetic
@@ -34,10 +35,6 @@ figure never requires re-running an experiment.
 
 | Compute slurm | Plotting slurm |
 |---|---|
-| `slurm/analytic_2d.slurm`     | `slurm/plots/analytic_2d.slurm`     |
-| `slurm/analytic_3d.slurm`     | `slurm/plots/analytic_3d.slurm`     |
-| `slurm/dimension_sweep.slurm` | `slurm/plots/dimension_sweep.slurm` |
-| `slurm/eps_nfe_sweep.slurm`   | `slurm/plots/eps_nfe_sweep.slurm`   |
 
 `eps_nfe_sweep` is a SLURM array (4 epsilons x 3 NFEs x 3 seeds = 36
 cells, one core each, fits a single 40-core node). After the array

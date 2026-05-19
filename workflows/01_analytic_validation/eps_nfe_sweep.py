@@ -11,7 +11,7 @@ Outputs under ``outputs/01_analytic_validation/eps_nfe_sweep/``:
     - aggregate.json          (after --mode aggregate)
 
 The companion plotting driver
-``src/plotting/01_analytic_validation/eps_nfe_sweep.py`` reads
+``workflows/99_supporting_info_figures/eps_nfe_sweep.py`` reads
 ``aggregate.json`` and renders the heatmap figure.
 """
 

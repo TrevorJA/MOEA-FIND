@@ -21,7 +21,7 @@
 # After all array tasks finish, aggregate via:
 #     python workflows/01_analytic_validation/eps_nfe_sweep.py --mode aggregate
 # Then plot via:
-#     sbatch workflows/01_analytic_validation/slurm/plots/eps_nfe_sweep.slurm
+#     the single workflows/99_supporting_info_figures/slurm/make_si_figures.slurm job
 
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup

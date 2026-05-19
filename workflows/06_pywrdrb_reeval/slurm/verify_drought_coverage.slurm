@@ -9,7 +9,7 @@
 #SBATCH --mem=16G
 # Stage 06 / verify_drought_coverage -- pre-flight pass/fail report
 # (Criteria 1-5) on a stage 04 archive. Pair with
-# workflows/06_pywrdrb_reeval/slurm/plots/verify_drought_coverage.slurm.
+# the single workflows/99_supporting_info_figures job (make_si_figures.slurm).
 
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup

@@ -16,7 +16,7 @@ sample.
 Compute-only driver: writes numerical artifacts under
 ``outputs/08_nyc_sensitivity/run_sa/<slug>/``. Figures are produced by
 the paired plotting driver
-``src/plotting/08_nyc_sensitivity/run_sa.py``.
+``workflows/99_supporting_info_figures/run_sa.py``.
 
 Outputs (``outputs/08_nyc_sensitivity/run_sa/<slug>/``):
 
