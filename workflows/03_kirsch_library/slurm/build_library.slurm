@@ -18,5 +18,4 @@ moea_setup
 python workflows/03_kirsch_library/build_library.py \
     --n-traces 10000 \
     --n-years 20 \
-    --ssi 3 \
     --seed 42

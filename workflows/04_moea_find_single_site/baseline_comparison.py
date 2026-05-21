@@ -76,7 +76,10 @@ def main():
                 f"[04/baseline_comparison] {label}={path} does not exist."
             )
 
-    out = stage_output_dir(STAGE, DRIVER)
+    # Slug by the upstream Pareto front's slug so that runs against
+    # different MOEA archives land in disjoint dirs (no clobber).
+    slug = Path(args.moea_front).parent.name
+    out = stage_output_dir(STAGE, DRIVER, slug)
     (out / "config.json").write_text(json.dumps({
         "stage": STAGE,
         "driver": DRIVER,

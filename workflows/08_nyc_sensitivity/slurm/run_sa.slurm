@@ -19,9 +19,15 @@ moea_setup
 
 export PYTHONUNBUFFERED=1
 
+# Production first-event slug. Override by setting MOEA_SLUG, or pass
+# explicit --bank/--chars via $1/$2 if you need different paths.
+MOEA_SLUG="${MOEA_SLUG:-moea__mode=residual__T=10__nfe=200k__ssi=3__metrics=first_event_ssi3_t10__cons=dv-l2__st=ad__s=42}"
+BANK="${1:-outputs/06_pywrdrb_reeval/policy_reeval/${MOEA_SLUG}/results/metric_bank.parquet}"
+CHARS="${2:-outputs/04_moea_find_single_site/run_moea_find/${MOEA_SLUG}/results.json}"
+
 python workflows/08_nyc_sensitivity/run_sa.py \
-    --bank  outputs/06_pywrdrb_reeval/policy_reeval/residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad/results/metric_bank.parquet \
-    --chars outputs/04_moea_find_single_site/run_moea_find/residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad/results.json \
+    --bank  "${BANK}" \
+    --chars "${CHARS}" \
     --config workflows/08_nyc_sensitivity/configs/delta.yaml \
     --methods delta \
     --seed 42 \

@@ -29,14 +29,22 @@ from src.discovery.analysis import (  # noqa: E402
     generate_sobol_samples,
 )
 from src.io_paths.paths import stage_output_dir  # noqa: E402
+from src.io_paths.slugs import subsample_slug  # noqa: E402
 
 STAGE = "03_kirsch_library"
 DRIVER = "subsample_baseline"
 FEATURE_KEYS = ("mean_duration", "mean_avg_severity")
 
 
-def slug(n_select: int, seed: int, library: Path) -> str:
-    return f"{library.parent.name}_n{n_select}_s{seed}"
+def _src_id(library: Path) -> str:
+    """Compact id of the upstream library run, safe to embed in another slug.
+
+    ``library.parent.name`` is the library's own slug
+    (``library__N=10000__T=20__s=42``); strip the ``__`` / ``=``
+    separators so the resulting subsample slug round-trips through
+    :func:`src.io_paths.slugs.parse_slug` unambiguously.
+    """
+    return library.parent.name.replace("__", "_").replace("=", "")
 
 
 def load_features(library_path: Path) -> tuple[np.ndarray, list]:
@@ -63,7 +71,9 @@ def main():
     args = p.parse_args()
 
     method_driver = f"{DRIVER}/{args.method}"
-    out_dir = stage_output_dir(STAGE, method_driver, slug(args.n_select, args.seed, args.library))
+    slug = subsample_slug(src=_src_id(args.library), method=args.method,
+                          n_select=args.n_select, seed=args.seed)
+    out_dir = stage_output_dir(STAGE, method_driver, slug)
     (out_dir / "config.json").write_text(json.dumps({
         "stage": STAGE, "driver": DRIVER,
         "library": str(args.library),

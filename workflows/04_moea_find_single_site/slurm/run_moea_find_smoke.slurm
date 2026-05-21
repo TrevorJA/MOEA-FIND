@@ -3,11 +3,13 @@
 #SBATCH --output=workflows/slurm_logs/%x_%j.out
 #SBATCH --error=workflows/slurm_logs/%x_%j.err
 #SBATCH --time=00:30:00
-#SBATCH --nodes=1
+#SBATCH --nodes=3
 #SBATCH --ntasks-per-node=40
 #SBATCH --exclusive
 # Stage 04 / run_moea_find -- quick wiring SMOKE (replaces the former
-# *_smoke variants). Drops NFE, not ranks (per MM-Borg policy).
+# *_smoke variants). Per MM-Borg policy
+# (see memory/feedback_mmborg_exclusive_and_full_rank): smokes drop
+# NFE, not ranks -- 3 nodes x 40 ranks = 120 cores matching production.
 #
 #   sbatch workflows/04_moea_find_single_site/slurm/run_moea_find_smoke.slurm \
 #       [CONFIG] [NFE]

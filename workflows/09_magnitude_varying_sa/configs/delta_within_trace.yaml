@@ -13,7 +13,9 @@ methods:
 
 magnitude_axis: nyc_min_storage_frac
 response_form: within_trace_percentile
-trace_series: outputs/09_magnitude_varying_sa/precompute_trace_series/residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad/annual_nyc_min_storage_frac.parquet
+# Updated 2026-05-20 to the post-cleanup canonical MOEA slug. Update this
+# path whenever precompute_trace_series.py runs on a different archive.
+trace_series: outputs/09_magnitude_varying_sa/precompute_trace_series/moea__mode=residual__T=10__nfe=200k__ssi=3__metrics=first_event_ssi3_t10__cons=dv-l2__st=ad__s=42/annual_nyc_min_storage_frac.parquet
 
 # 19 evenly-spaced points avoiding the degenerate 0% and 100% endpoints.
 # At low tau (e.g. 0.05) Y_i is approximately the WORST year of trace i;

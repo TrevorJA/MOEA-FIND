@@ -40,8 +40,14 @@ export OPENBLAS_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 
+# Production first-event slug. Override by setting MOEA_SLUG, or pass
+# explicit --bank/--chars via $1/$2 if you need different paths.
+MOEA_SLUG="${MOEA_SLUG:-moea__mode=residual__T=10__nfe=200k__ssi=3__metrics=first_event_ssi3_t10__cons=dv-l2__st=ad__s=42}"
+BANK="${1:-outputs/06_pywrdrb_reeval/policy_reeval/${MOEA_SLUG}/results/metric_bank.csv}"
+CHARS="${2:-outputs/04_moea_find_single_site/run_moea_find/${MOEA_SLUG}/results.json}"
+
 moea_mpi_launch 19 python workflows/09_magnitude_varying_sa/run_mv_sa.py \
-    --bank  outputs/06_pywrdrb_reeval/policy_reeval/residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad/results/metric_bank.csv \
-    --chars outputs/04_moea_find_single_site/run_moea_find/residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad/results.json \
+    --bank  "${BANK}" \
+    --chars "${CHARS}" \
     --magnitude-axis nyc_min_storage_frac \
     --config workflows/09_magnitude_varying_sa/configs/delta_within_trace.yaml

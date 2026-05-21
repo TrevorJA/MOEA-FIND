@@ -16,9 +16,13 @@ Combines the two diagnostic phases for the T=10y first-SSI3-drought pivot:
              (synthetic vs historical monthly flows) so the AD signal
              is visible alongside the constraint behavior.
 
-Outputs:
-    figures/first_event_envelope/<dv_mode>_T<n_years>.png
-    outputs/02_calibration/first_event_envelope/<dv_mode>_T<n_years>.json
+Outputs under the canonical stage paths
+``outputs/02_calibration/diagnose_first_event_envelope/<slug>/`` and
+``figures/02_calibration/diagnose_first_event_envelope/<slug>/``, where
+slug = ``<dv_mode>_T<n_years>``:
+
+    outputs/02_calibration/diagnose_first_event_envelope/<slug>/summary.json
+    figures/02_calibration/diagnose_first_event_envelope/<slug>/envelope.png
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.experiment import prepare_data  # noqa: E402
 from src.hydrology.kirsch_utils import build_kirsch_generator  # noqa: E402
 from src.hydrology.kirsch_wrapper import KirschBorgWrapper  # noqa: E402
+from src.io_paths.paths import stage_figure_dir, stage_output_dir  # noqa: E402
 from src.metrics.objectives import (  # noqa: E402
     compute_ssi,
     compute_ssi_drought_characteristics,
@@ -48,6 +53,9 @@ from src.metrics.objectives import (  # noqa: E402
     get_drought_metrics,
     make_ssi_calculator,
 )
+
+STAGE = "02_calibration"
+DRIVER = "diagnose_first_event_envelope"
 
 
 def historical_event_records(monthly_1d: np.ndarray, timescale: int = 3) -> pd.DataFrame:
@@ -196,12 +204,11 @@ def main():
     p.add_argument("--seed", type=int, default=20260506)
     p.add_argument("--cache-dir", type=Path,
                    default=PROJECT_ROOT / "data" / "usgs_cache")
-    p.add_argument("--out-dir", type=Path,
-                   default=PROJECT_ROOT / "outputs" / "02_calibration"
-                   / "first_event_envelope")
-    p.add_argument("--fig-dir", type=Path,
-                   default=PROJECT_ROOT / "figures" / "first_event_envelope")
     args = p.parse_args()
+
+    slug = f"{args.dv_mode}_T{args.n_years}"
+    out_dir = stage_output_dir(STAGE, DRIVER, slug)
+    fig_dir = stage_figure_dir(STAGE, DRIVER, slug)
 
     print(f"[diagnose_first_event] T={args.n_years}y, mode={args.dv_mode}, "
           f"N={args.n_samples}, seed={args.seed}")
@@ -274,12 +281,11 @@ def main():
         "ad_plausibility": ad_stats,
     }
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    json_path = args.out_dir / f"{args.dv_mode}_T{args.n_years}.json"
+    json_path = out_dir / "summary.json"
     json_path.write_text(json.dumps(summary, indent=2, default=str))
     print(f"[diagnose_first_event] wrote {json_path}")
 
-    fig_path = args.fig_dir / f"{args.dv_mode}_T{args.n_years}.png"
+    fig_path = fig_dir / "envelope.png"
     plot_envelope(hist_df, syn_df, fig_path)
     print(f"[diagnose_first_event] wrote {fig_path}")
 

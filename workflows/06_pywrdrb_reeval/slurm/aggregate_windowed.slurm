@@ -15,7 +15,8 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-PARETO_RESULTS="outputs/04_moea_find_single_site/run_moea_find/residual_T10_nfe200000_s42_constrained_cmdv_uniform_sfxcoarse_stad/results.json"
+MOEA_SLUG="${MOEA_SLUG:-moea__mode=residual__T=10__nfe=200k__ssi=3__metrics=first_event_ssi3_t10__cons=dv-l2__st=ad__s=42}"
+PARETO_RESULTS="${1:-outputs/04_moea_find_single_site/run_moea_find/${MOEA_SLUG}/results.json}"
 
 export PYTHONUNBUFFERED=1
 echo "[06w-agg.slurm] Start: $(date)"

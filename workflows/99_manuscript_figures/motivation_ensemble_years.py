@@ -6,7 +6,7 @@ Two panels, x-axis = number of scenario years (log scale):
   right — maximum drought magnitude (|SSI|-month deficit) vs ensemble years
 
 Each ensemble size is bootstrap-resampled from the existing baseline Kirsch
-library (``outputs/03_kirsch_library/build_library/n10000_t20_ssi3_s42``,
+library (``outputs/03_kirsch_library/build_library/library__N=10000__T=20__s=42``,
 10,000 traces x 20 water years, SSI-3, seed 42). For an ensemble of ``m``
 traces the panel value is the maximum per-trace ``max_duration`` /
 ``max_magnitude`` across the ``m`` drawn traces; ``m`` traces = ``20 m``
@@ -42,7 +42,7 @@ from synhydro.droughts.ssi import get_drought_metrics  # noqa: E402
 
 LIBRARY_NPZ = (
     PROJECT_ROOT
-    / "outputs/03_kirsch_library/build_library/n10000_t20_ssi3_s42"
+    / "outputs/03_kirsch_library/build_library/library__N=10000__T=20__s=42"
     / "characteristics.npz"
 )
 TRACE_YEARS = 20  # each library trace is 20 water years

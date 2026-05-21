@@ -16,7 +16,8 @@ moea_setup
 
 export PYTHONUNBUFFERED=1
 
-PARETO_RESULTS="outputs/04_moea_find_single_site/run_moea_find/residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad/results.json"
+MOEA_SLUG="${MOEA_SLUG:-moea__mode=residual__T=10__nfe=200k__ssi=3__metrics=first_event_ssi3_t10__cons=dv-l2__st=ad__s=42}"
+PARETO_RESULTS="${1:-outputs/04_moea_find_single_site/run_moea_find/${MOEA_SLUG}/results.json}"
 
 python workflows/07_scenario_discovery/satisficing_sweep.py \
     --pareto-results "${PARETO_RESULTS}" \

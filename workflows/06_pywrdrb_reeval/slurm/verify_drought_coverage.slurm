@@ -14,9 +14,10 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-# Bake the Pareto-archive path. To verify a different stage 04 run,
-# edit this line; do NOT pass arguments via sbatch.
-PARETO_RESULTS="outputs/04_moea_find_single_site/run_moea_find/residual_T20_nfe200000_s42_constrained_cmdv_uniform_stad/results.json"
+# Production first-event slug; pass an alternate results.json path as $1
+# or set MOEA_SLUG in the environment to override.
+MOEA_SLUG="${MOEA_SLUG:-moea__mode=residual__T=10__nfe=200k__ssi=3__metrics=first_event_ssi3_t10__cons=dv-l2__st=ad__s=42}"
+PARETO_RESULTS="${1:-outputs/04_moea_find_single_site/run_moea_find/${MOEA_SLUG}/results.json}"
 
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 

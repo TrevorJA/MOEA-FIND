@@ -14,7 +14,7 @@
 source "${SLURM_SUBMIT_DIR}/workflows/_common.sh"
 moea_setup
 
-LIBRARY=outputs/03_kirsch_library/build_library/n10000_t20_ssi3_s42/characteristics.json
+LIBRARY=outputs/03_kirsch_library/build_library/library__N=10000__T=20__s=42/characteristics.json
 
 for method in lhs sobol random; do
     python workflows/03_kirsch_library/subsample_baseline.py \

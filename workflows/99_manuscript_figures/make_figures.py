@@ -23,7 +23,7 @@ Run:
     python workflows/99_manuscript_figures/make_figures.py
     python workflows/99_manuscript_figures/make_figures.py --only fig04
     python workflows/99_manuscript_figures/make_figures.py \
-        --single-site-slug residual_T20_nfe200000_s42_constrained
+        --single-site-slug moea__mode=residual__T=10__nfe=200k__ssi=3__metrics=first_event_ssi3_t10__cons=dv-l2__st=ad__s=42
 """
 
 from __future__ import annotations
@@ -77,21 +77,21 @@ FIGURES_SI = manuscript_figure_dir("supplementary")
 DIMENSION_SWEEP_DIR: Path = stage_output_dir(
     "01_analytic_validation", "dimension_sweep", create=False,
 )
-ANALYTIC_2D_DIR: Path = stage_output_dir(
-    "01_analytic_validation", "analytic_2d", create=False,
-)
-ANALYTIC_3D_DIR: Path = stage_output_dir(
-    "01_analytic_validation", "analytic_3d", create=False,
-)
 KIRSCH_LIBRARY_DIR: Path = stage_output_dir(
     "03_kirsch_library", "build_library", create=False,
 )
 # Production library slug. Override with --library-slug if a different
 # build was used. fig06 needs this to find characteristics.npz.
-KIRSCH_LIBRARY_SLUG: str = "n10000_t20_ssi3_s42"
-# Analytic compute slugs (figSI01 reads pareto.npz from these).
-ANALYTIC_2D_SLUG: str = "k2_nfe100000_eps0.060_s42"
-ANALYTIC_3D_SLUG: str = "k3_nfe50000_eps0.150_s42"
+KIRSCH_LIBRARY_SLUG: str = "library__N=10000__T=20__s=42"
+# K=2 and K=3 figSI01 slices are taken from the canonical dimension_sweep
+# K slices (the dedicated analytic_2d / analytic_3d drivers were retired
+# in the 2026-05-20 cleanup -- analytic.slurm now runs K=2 at 100k NFE
+# and K=3 at 50k NFE, matching the resolution of the retired drivers).
+ANALYTIC_DIM_SWEEP_DIR: Path = stage_output_dir(
+    "01_analytic_validation", "dimension_sweep", create=False,
+)
+ANALYTIC_2D_SLUG: str = "analytic__k=2__nfe=100k__s=42"
+ANALYTIC_3D_SLUG: str = "analytic__k=3__nfe=50k__s=42"
 
 # Single-site MOEA-FIND variant dir + matching pywrdrb re-eval dir.
 # Resolved at main() time from ``--single-site-slug``.
@@ -446,10 +446,13 @@ def fig07_gbt_hazard_discovery() -> bool:
 # =============================================================================
 def fig_si01_hyperplane() -> bool:
     """Figure SI-1 - hyperplane residual histogram."""
-    p2 = ANALYTIC_2D_DIR / ANALYTIC_2D_SLUG / "pareto.npz"
-    p3 = ANALYTIC_3D_DIR / ANALYTIC_3D_SLUG / "pareto.npz"
-    o2 = np.load(p2)["objs"] if p2.exists() else None
-    o3 = np.load(p3)["objs"] if p3.exists() else None
+    # The K=2 / K=3 archives now come from the canonical dimension_sweep
+    # samples.npz (key "borg"), which superseded the retired analytic_2d
+    # / analytic_3d drivers' pareto.npz output.
+    p2 = ANALYTIC_DIM_SWEEP_DIR / ANALYTIC_2D_SLUG / "samples.npz"
+    p3 = ANALYTIC_DIM_SWEEP_DIR / ANALYTIC_3D_SLUG / "samples.npz"
+    o2 = np.load(p2)["borg"] if p2.exists() else None
+    o3 = np.load(p3)["borg"] if p3.exists() else None
     if o2 is None and o3 is None:
         _skip("figSI01", "neither 2D nor 3D Pareto available")
         return False

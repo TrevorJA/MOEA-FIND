@@ -513,20 +513,45 @@ def fig3_manhattan_construction(
 # Main-text Figure 4 — Dimension sweep at K = 2 through K = 6
 # =============================================================================
 def _load_dimension_sweep(diag_root) -> Dict[int, Dict[str, object]]:
-    """Load all k{2..6} diagnostic outputs from the shell-vs-interior sweep."""
+    """Load all per-K diagnostic outputs from the dimension sweep.
+
+    Slugs follow ``analytic_slug(k=K, nfe=N, seed=S)`` ->
+    ``analytic__k=K__nfe=...__s=...``. If multiple slugs exist for the
+    same K (e.g. different NFE budgets), the one with the highest NFE
+    wins (parsed back via :func:`src.io_paths.slugs.parse_slug`).
+    """
     import json
     from pathlib import Path
+    from src.io_paths.slugs import parse_slug
     diag_root = Path(diag_root)
     out: Dict[int, Dict[str, object]] = {}
-    for k in (2, 3, 4, 5, 6):
-        kd = diag_root / f"k{k}"
-        results_path = kd / "results.json"
-        samples_path = kd / "samples.npz"
-        if not (results_path.exists() and samples_path.exists()):
+    if not diag_root.exists():
+        return out
+    by_k: Dict[int, list] = {}
+    for sub in diag_root.iterdir():
+        if not sub.is_dir():
             continue
-        results = json.loads(results_path.read_text())
-        samples = dict(np.load(samples_path))
-        out[k] = {"results": results, "samples": samples}
+        try:
+            parsed = parse_slug(sub.name)
+        except Exception:  # noqa: BLE001
+            continue
+        if parsed.get("_stage") != "analytic" or "k" not in parsed:
+            continue
+        try:
+            k = int(parsed["k"])
+        except ValueError:
+            continue
+        if not ((sub / "results.json").exists() and (sub / "samples.npz").exists()):
+            continue
+        nfe_token = parsed.get("nfe", 0)
+        nfe = nfe_token if isinstance(nfe_token, int) else 0
+        by_k.setdefault(k, []).append((nfe, sub))
+    for k, candidates in by_k.items():
+        nfe, kd = max(candidates, key=lambda t: t[0])
+        out[k] = {
+            "results": json.loads((kd / "results.json").read_text()),
+            "samples": dict(np.load(kd / "samples.npz")),
+        }
     return out
 
 

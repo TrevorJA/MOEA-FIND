@@ -224,9 +224,11 @@ def main():
     p.add_argument("--feasible-radius", type=float, default=FEASIBLE_RADIUS)
     args = p.parse_args()
 
+    from src.io_paths.slugs import analytic_slug  # noqa: E402
     shape = args.feasible_shape
     radius = args.feasible_radius
-    k_dir = stage_output_dir(STAGE, DRIVER, f"k{args.k}")
+    k_dir = stage_output_dir(STAGE, DRIVER,
+                             analytic_slug(k=args.k, nfe=args.nfe, seed=args.seed))
     (k_dir / "config.json").write_text(json.dumps({
         "stage": STAGE, "driver": DRIVER,
         "algorithm": "borg_mm",
